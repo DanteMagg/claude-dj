@@ -116,7 +116,29 @@ export function usePlayer(sessionId: string | null): [PlayerStatus, PlayerContro
       setStatus((prev) => ({ ...prev, state: "buffering", error: null }));
     };
 
-    ws.onmessage = (ev: MessageEvent<ArrayBuffer>) => {
+    ws.onmessage = (ev: MessageEvent<ArrayBuffer | string>) => {
+      // Text frames are control messages from the server
+      if (typeof ev.data === "string") {
+        try {
+          const msg = JSON.parse(ev.data) as { type: string; msg?: string; progress?: number; total?: number };
+          if (msg.type === "end") {
+            playingRef.current = false;
+            setStatus((prev) => ({ ...prev, state: "idle" }));
+          } else if (msg.type === "error") {
+            setStatus((prev) => ({ ...prev, state: "error", error: msg.msg ?? "server error" }));
+          }
+          // "loading" messages are handled in App.tsx via /api/session polling; ignore here
+        } catch { /* malformed text */ }
+        return;
+      }
+
+      // Binary frame — 2-byte sentinel b"\xff\xff" means mix ended (belt + suspenders)
+      if (ev.data.byteLength === 2) {
+        playingRef.current = false;
+        setStatus((prev) => ({ ...prev, state: "idle" }));
+        return;
+      }
+
       try {
         const buf = decodePcmFrame(ev.data);
         chunkQueueRef.current.push(buf);
