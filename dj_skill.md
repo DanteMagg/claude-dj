@@ -383,6 +383,125 @@ If any check fails and cannot be resolved, default to a **short percussion-windo
 
 ---
 
+## 7. LOOP TECHNIQUE
+
+### 7.1 Purpose — three legitimate uses
+
+**Use 1 — Extend the outgoing track's transition window.** When the outro is too short (≤8 bars of clean material), loop its cleanest drum-only phrase to create the runway needed for a proper bass swap + handover. This is the most common professional loop application.
+
+**Use 2 — Hold a peak moment.** After the drop lands and the crowd is responding strongly, loop the drop's first 8-bar phrase to sustain peak energy before transitioning. Use only when the floor is clearly at maximum — otherwise it reads as a stall.
+
+**Use 3 — Pre-drop tension hold.** Loop the last 8 bars of a build to stretch anticipation before the drop fires. This works because the listener is primed for release; a one-phrase extension amplifies the payoff. Beyond 1 repeat it deflates instead.
+
+### 7.2 What to loop — and what never to loop
+
+**Loop these (safe):**
+- Drum-only / hi-hat-only phrases — no harmonic content, loops transparently
+- Outro percussion tail where the bassline has already dropped out
+- The first 8 bars of a breakdown (sparse, low-density, harmonically neutral)
+
+**Never loop these:**
+- Melodic or chord stab phrases — the repetition is immediately audible; sounds like a skip
+- Vocal phrases — a looped vocal reads as a technical error, not a creative choice
+- The main groove with full bassline — tolerable for 1 repeat at most, fatiguing beyond that
+- Intro sections — loops there have no payoff; the track hasn't established yet
+
+### 7.3 Technical rules (binding)
+
+1. **`start_bar` must be a multiple of 8.** Mid-phrase loop points sound like a glitch regardless of content.
+2. **`loop_bars` must be 4 or 8.** 8-bar is the default for house/techno. 4-bar for D&B or tight builds.
+3. **`loop_repeats` 1–3.** One repeat = 8 bars of extension (standard). Two repeats = 16 bars (only for a planned outro extension). Three = only in peak techno with clear audience signal. Four is almost always too long.
+4. **Always follow a loop with a `play` or `fade_out` action.** The loop is a hold, not a terminal state.
+5. **One loop per transition maximum.** If T1's outro was looped, T2's outro does not get one.
+6. **Do not loop consecutive transitions.** Overuse eliminates the effect entirely.
+
+### 7.4 Use by genre
+
+| Genre | Primary use | Preferred config |
+|---|---|---|
+| Deep house | Extend short outro for long blend | 8 bars × 1–2 repeats |
+| Tech house | Hold peak drop phrase | 8 bars × 1 repeat |
+| Progressive house | Pre-drop tension | 8 bars × 1 repeat |
+| Techno | Extend outro drum section | 8 bars × 1–3 repeats |
+| Uplifting trance | Pre-drop tension only | 8 bars × 1 repeat |
+| Psytrance | Emergency extension only | 4 bars × 1 repeat |
+| EDM/big room | Pre-drop 4-bar hold | 4 bars × 1 repeat |
+| D&B | Emergency only (short outro) | 4 bars × 1 repeat |
+
+### 7.5 The short-outro problem — canonical loop fix
+
+Some tracks have abrupt endings: 8 bars of drums, then a fast fade. Standard protocol:
+
+1. Identify the last clean 8-bar drum-only phrase before the track deteriorates.
+2. Place `loop` on that phrase: `loop_bars: 8`, `loop_repeats: 2` = 16 bars of added runway.
+3. Begin `fade_in` of the incoming track so the bass swap lands inside the loop window.
+4. `fade_out` the outgoing track to close within or just after the loop window.
+5. Do NOT emit a `play` for the outgoing track after the loop — it should be fading out.
+
+---
+
+## 8. PROFESSIONAL MIX EXAMPLES
+
+These are canonical action sequences for common scenarios. Use them as structural templates.
+
+### 8.1 Standard tech house transition (16-bar blend, same key)
+
+**Situation:** T1 is in its outro (drums + bass, no vocals). T2 starts at its intro (drums only, 16 bars). Same key. 16-bar overlap is correct for tech house.
+
+```json
+[
+  {"type": "play",      "track": "T1", "at_bar": 0,  "from_bar": 0},
+  {"type": "fade_in",   "track": "T2", "start_bar": 64, "duration_bars": 16, "from_bar": 0,
+   "stems": {"drums": 0.8, "bass": 0.0, "vocals": 0.0, "other": 0.6}},
+  {"type": "bass_swap", "track": "T1", "at_bar": 72, "incoming_track": "T2"},
+  {"type": "play",      "track": "T2", "at_bar": 80, "from_bar": 16},
+  {"type": "fade_out",  "track": "T1", "start_bar": 80, "duration_bars": 16}
+]
+```
+
+Bass held at 0.0 on T2 until the swap at bar 72 (halfway through the 16-bar overlap, on a phrase boundary). T1 fades over the 16 bars after T2 is already at full volume.
+
+---
+
+### 8.2 Deep house long blend with loop extension (outgoing has short outro)
+
+**Situation:** T1 has only 8 bars of clean percussion before track ends. Need a 32-bar blend. Loop T1's percussion phrase twice for 16 bars of runway, then blend inside it.
+
+```json
+[
+  {"type": "play",      "track": "T1", "at_bar": 0,  "from_bar": 0},
+  {"type": "loop",      "track": "T1", "start_bar": 80, "loop_bars": 8, "loop_repeats": 2},
+  {"type": "fade_in",   "track": "T2", "start_bar": 88, "duration_bars": 32, "from_bar": 0,
+   "stems": {"drums": 0.6, "bass": 0.0, "vocals": 0.0, "other": 0.5}},
+  {"type": "bass_swap", "track": "T1", "at_bar": 96, "incoming_track": "T2"},
+  {"type": "fade_out",  "track": "T1", "start_bar": 96, "duration_bars": 24},
+  {"type": "play",      "track": "T2", "at_bar": 120, "from_bar": 32}
+]
+```
+
+Loop fires at bar 80 (last clean drum phrase), giving 16 bars of runway (bars 80–96). Fade_in starts at bar 88 — 8 bars into the loop, so T1 is already stable. Bass swap at bar 96 (phrase boundary, 8 bars into the 32-bar blend). Loop ends naturally at bar 96; fade_out takes T1 the rest of the way.
+
+---
+
+### 8.3 Short cut — harmonically incompatible tracks, percussion-window only
+
+**Situation:** T1 and T2 are more than ±2 apart on the Camelot wheel. T1 has a 16-bar drum-only window in its outro. Only drums on T2 fade_in; no melodic elements introduced during overlap.
+
+```json
+[
+  {"type": "play",      "track": "T1", "at_bar": 0,  "from_bar": 0},
+  {"type": "fade_in",   "track": "T2", "start_bar": 56, "duration_bars": 8, "from_bar": 0,
+   "stems": {"drums": 1.0, "bass": 0.0, "vocals": 0.0, "other": 0.0}},
+  {"type": "bass_swap", "track": "T1", "at_bar": 64, "incoming_track": "T2"},
+  {"type": "play",      "track": "T2", "at_bar": 64, "from_bar": 8},
+  {"type": "fade_out",  "track": "T1", "start_bar": 56, "duration_bars": 16}
+]
+```
+
+8-bar blend only — just long enough to establish T2's kick before the swap. `other: 0.0` and `bass: 0.0` on fade_in ensures zero harmonic content introduced during the clash window. Bass swap and T2 full-play fire on the same downbeat (bar 64) for a clean cut.
+
+---
+
 ## CAVEATS
 
 - **All numeric guidance is a default, not an absolute.** Reading the room — when audience-feedback signal is available — overrides any rule above. If the dancefloor is responding strongly to a "wrong" choice, continue.

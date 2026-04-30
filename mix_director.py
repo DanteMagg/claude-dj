@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import date
 from pathlib import Path
+from typing import Optional
 
 import anthropic
 
@@ -130,10 +131,12 @@ def direct_mix(analyses: list[TrackAnalysis], model: str, min_minutes: Optional[
     client = anthropic.Anthropic()
     prompt = build_prompt(analyses, min_minutes)
 
+    # System prompt is large (~35 KB) and static — cache it to avoid re-tokenizing
+    # on every mix call. Cache TTL is 5 minutes; repeated calls within a session hit it.
     response = client.messages.create(
         model=model,
         max_tokens=4096,
-        system=_load_system_prompt(),
+        system=[{"type": "text", "text": _load_system_prompt(), "cache_control": {"type": "ephemeral"}}],
         messages=[{"role": "user", "content": prompt}],
     )
 
