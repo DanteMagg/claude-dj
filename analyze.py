@@ -236,6 +236,37 @@ def build_sections(
     return sections
 
 
+def _energy_cue_points(energy_curve: list[int], n_bars: int) -> list[CuePoint]:
+    phrase = 8
+    n = len(energy_curve)
+    if n == 0:
+        return [
+            CuePoint(name="mix_in",  bar=0,                      type="phrase_start"),
+            CuePoint(name="mix_out", bar=max(0, n_bars - phrase), type="outro_start"),
+        ]
+
+    mean_e = sum(energy_curve) / n
+
+    # mix_in: first phrase boundary after energy sustains >= mean for 4+ bars
+    mix_in = 0
+    for i in range(n - 3):
+        if all(e >= mean_e for e in energy_curve[i:i + 4]):
+            mix_in = (i // phrase) * phrase
+            break
+
+    # mix_out: scan backward; last 4-bar window that is >= mean marks the body end
+    mix_out = max(0, ((n - 1) // phrase) * phrase)
+    for i in range(n - 4, 0, -1):
+        if all(e >= mean_e for e in energy_curve[i:i + 4]):
+            mix_out = min(n_bars - 1, ((i + 4 + phrase - 1) // phrase) * phrase)
+            break
+
+    return [
+        CuePoint(name="mix_in",  bar=mix_in,  type="phrase_start"),
+        CuePoint(name="mix_out", bar=mix_out, type="outro_start"),
+    ]
+
+
 def analyze_track(audio_path: str, track_id: str) -> TrackAnalysis:
     audio_path = str(Path(audio_path).resolve())
     cache_dir = track_cache_dir(audio_path)
@@ -256,8 +287,19 @@ def analyze_track(audio_path: str, track_id: str) -> TrackAnalysis:
     bpm = float(np.atleast_1d(tempo)[0])
     beat_times = librosa.frames_to_time(beat_frames, sr=sr)
 
-    # Downbeats: every 4th beat starting from first strong beat
-    downbeats = beat_times[::BEATS_PER_BAR]
+    # Downbeat phase correction: try all 4 offsets, pick the one where downbeats
+    # land on strongest onsets (beat 1 of each bar has the strongest transient on
+    # average, e.g. kick drum + chord hit).
+    onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+    onset_times = librosa.frames_to_time(np.arange(len(onset_env)), sr=sr)
+    best_phase, best_score = 0, -np.inf
+    for phase in range(BEATS_PER_BAR):
+        candidate = beat_times[phase::BEATS_PER_BAR]
+        idxs = np.searchsorted(onset_times, candidate).clip(0, len(onset_env) - 1)
+        score = float(onset_env[idxs].mean())
+        if score > best_score:
+            best_score, best_phase = score, phase
+    downbeats = beat_times[best_phase::BEATS_PER_BAR]
     first_downbeat_s = float(downbeats[0]) if len(downbeats) > 0 else 0.0
     n_bars = len(downbeats)
 
@@ -287,8 +329,8 @@ def analyze_track(audio_path: str, track_id: str) -> TrackAnalysis:
     energy_curve_str = "".join(str(e) for e in energy_curve)
     energy_overall = max(0, min(10, int(np.mean(energy_curve))))
 
-    # Loudness (simple dBFS)
-    loudness_lufs = round(compute_rms_db(y), 1)
+    # Loudness (RMS dBFS — not true LUFS)
+    loudness_dbfs = round(compute_rms_db(y), 1)
 
     # Stem separation
     no_stems = os.environ.get("CLAUDE_DJ_NO_STEMS") == "1"
@@ -302,11 +344,10 @@ def analyze_track(audio_path: str, track_id: str) -> TrackAnalysis:
     print("  [analyze] segmenting structure")
     sections = build_sections(y, sr, downbeats, stem_paths)
 
-    # Cue points: first section start + last section start
-    cue_points = [
-        CuePoint(name="mix_in", bar=sections[0].end_bar if sections else 0, type="phrase_start"),
-        CuePoint(name="mix_out", bar=sections[-1].start_bar if sections else n_bars - 8, type="outro_start"),
-    ]
+    # Cue points: energy-curve-based, snapped to 8-bar phrase boundaries.
+    # mix_in  = first phrase boundary after energy sustains at/above mean for 4 bars
+    # mix_out = last phrase boundary before energy drops and stays below mean
+    cue_points = _energy_cue_points(energy_curve, n_bars)
 
     title = Path(audio_path).stem
     artist = "Unknown"
@@ -329,7 +370,7 @@ def analyze_track(audio_path: str, track_id: str) -> TrackAnalysis:
         first_downbeat_s=round(first_downbeat_s, 3),
         key=key,
         energy_overall=energy_overall,
-        loudness_lufs=loudness_lufs,
+        loudness_dbfs=loudness_dbfs,
         bar_grid=BarGrid(n_bars=n_bars, beats_per_bar=BEATS_PER_BAR),
         energy_curve_per_bar=energy_curve_str,
         sections=sections,

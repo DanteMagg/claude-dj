@@ -69,7 +69,7 @@ class TrackAnalysis:
     first_downbeat_s: float
     key: KeyInfo
     energy_overall: int
-    loudness_lufs: float
+    loudness_dbfs: float
     bar_grid: BarGrid
     energy_curve_per_bar: str
     sections: list[Section]
