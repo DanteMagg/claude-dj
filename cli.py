@@ -42,9 +42,6 @@ def mix(tracks_dir, output, analyze_only, script, model, mp3, no_stems, min_minu
     """Analyze TRACKS_DIR, ask Claude to direct the mix, render audio."""
     sys.path.insert(0, str(Path(__file__).parent))
 
-    if no_stems:
-        os.environ["CLAUDE_DJ_NO_STEMS"] = "1"
-
     if script:
         # skip analysis + Claude
         with open(script) as f:
@@ -64,7 +61,7 @@ def mix(tracks_dir, output, analyze_only, script, model, mp3, no_stems, min_minu
 
         click.echo("\nAnalyzing tracks…")
         from analyze import analyze_tracks
-        analyses = analyze_tracks(track_paths)
+        analyses = analyze_tracks(track_paths, no_stems=no_stems)
 
         if analyze_only:
             click.echo("\nAnalysis complete. JSON cached per track.")
@@ -113,9 +110,6 @@ def dump(tracks_dir, output, no_stems):
     """Analyze TRACKS_DIR and write combined analysis JSON (for external Claude session)."""
     sys.path.insert(0, str(Path(__file__).parent))
 
-    if no_stems:
-        os.environ["CLAUDE_DJ_NO_STEMS"] = "1"
-
     track_paths = _find_tracks(tracks_dir)
     click.echo(f"Found {len(track_paths)} track(s):")
     for i, p in enumerate(track_paths):
@@ -123,7 +117,7 @@ def dump(tracks_dir, output, no_stems):
 
     click.echo("\nAnalyzing tracks…")
     from analyze import analyze_tracks
-    analyses = analyze_tracks(track_paths)
+    analyses = analyze_tracks(track_paths, no_stems=no_stems)
 
     combined = [a.to_dict() for a in analyses]
     out_path = output or str(Path(tracks_dir) / "analysis.json")

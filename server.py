@@ -16,7 +16,6 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import json
-import os
 import sys
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -43,7 +42,8 @@ app = FastAPI(title="Claude DJ")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173",
+                   "http://localhost:3000", "http://127.0.0.1:3000"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -97,17 +97,17 @@ class AnalyzeRequest(BaseModel):
 
 
 async def _run_analyze(job_id: str, tracks_dir: str, no_stems: bool) -> None:
-    if no_stems:
-        os.environ["CLAUDE_DJ_NO_STEMS"] = "1"
-    else:
-        os.environ.pop("CLAUDE_DJ_NO_STEMS", None)
-
     try:
         from analyze import analyze_track
 
+        td = Path(tracks_dir).resolve()
+        if not td.is_dir():
+            _analyze_jobs[job_id].update(status="error", error=f"Not a directory: {tracks_dir}")
+            return
+
         audio_exts = {".mp3", ".wav", ".flac", ".aiff", ".aif", ".m4a", ".ogg"}
         track_paths = sorted(
-            str(p) for p in Path(tracks_dir).iterdir()
+            str(p) for p in td.iterdir()
             if p.suffix.lower() in audio_exts
         )
         if not track_paths:
@@ -119,7 +119,9 @@ async def _run_analyze(job_id: str, tracks_dir: str, no_stems: bool) -> None:
         analyses = []
         for i, path in enumerate(track_paths):
             _analyze_jobs[job_id]["progress"] = i
-            analysis = await loop.run_in_executor(_bg_executor, analyze_track, path, f"T{i + 1}")
+            analysis = await loop.run_in_executor(
+                _bg_executor, analyze_track, path, f"T{i + 1}", no_stems
+            )
             analyses.append(analysis.to_dict())
             _analyze_jobs[job_id]["analyses"] = analyses[:]
 

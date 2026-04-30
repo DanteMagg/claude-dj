@@ -28,6 +28,8 @@ class TrackCursor:
     loop_phrase_ms: Optional[int] = None
     loop_end_ms: Optional[int] = None
     loop_source_offset: int = 0     # source pos at loop_start_ms
+    fade_in_stems: Optional[dict[str, float]] = None  # stem volumes during active fade_in
+    eq_end_ms: Optional[int] = None  # mix-time ms when the eq action expires
 
 
 def bars_to_ms(bars: float, bpm: float) -> int:
@@ -170,6 +172,7 @@ def compute_cursors_at_ms(
                 c.play_from_ms     = from_ms
                 c.fade_in_start_ms = at_ms
                 c.fade_in_end_ms   = at_ms + dur_ms
+                c.fade_in_stems    = action.stems
 
         elif action.type == "fade_out":
             start_ms = bars_to_ms(action.start_bar or 0,     ref_bpm)
@@ -191,7 +194,8 @@ def compute_cursors_at_ms(
 
         elif action.type == "eq":
             bar_ms = bars_to_ms(action.bar or 0, ref_bpm)
-            if bar_ms <= target_ms:
+            eq_end = bar_ms + bars_to_ms(4, ref_bpm)
+            if bar_ms <= target_ms < eq_end:
                 c.eq = (
                     action.low  if action.low  is not None else 1.0,
                     action.mid  if action.mid  is not None else 1.0,
@@ -258,22 +262,66 @@ def render_chunk(
 
         # ── Source slice ─────────────────────────────────────────────────────
         if cursor.loop_start_ms is not None and cursor.loop_phrase_ms:
-            # Loop mode: cycle the phrase within this chunk
+            # Loop mode: cycle the phrase within this chunk, capped at loop_end_ms
             phrase_ms = cursor.loop_phrase_ms
             phrase    = src[cursor.loop_source_offset : cursor.loop_source_offset + phrase_ms]
             if len(phrase) == 0:
                 continue
             track_chunk = AudioSegment.silent(duration=chunk_ms, frame_rate=target_rate)
-            elapsed      = start_ms - cursor.loop_start_ms
+            elapsed       = start_ms - cursor.loop_start_ms
             pos_in_phrase = elapsed % phrase_ms
             filled = 0
-            while filled < chunk_ms:
-                avail = min(phrase_ms - pos_in_phrase, chunk_ms - filled)
+            loop_fill_end = chunk_ms
+            if cursor.loop_end_ms is not None:
+                loop_fill_end = max(0, min(chunk_ms, cursor.loop_end_ms - start_ms))
+            while filled < loop_fill_end:
+                avail = min(phrase_ms - pos_in_phrase, loop_fill_end - filled)
                 track_chunk = track_chunk.overlay(
                     phrase[pos_in_phrase : pos_in_phrase + avail], position=filled
                 )
                 filled       += avail
                 pos_in_phrase = 0
+            # After loop ends, resume normal playback for the remainder of the chunk
+            if loop_fill_end < chunk_ms and cursor.loop_end_ms is not None:
+                repeats      = (cursor.loop_end_ms - cursor.loop_start_ms) // phrase_ms
+                post_src_pos = cursor.loop_source_offset + phrase_ms * repeats
+                post_start   = loop_fill_end
+                post_dur     = chunk_ms - post_start
+                post_src     = src[post_src_pos : post_src_pos + post_dur]
+                if len(post_src) < post_dur:
+                    post_src = post_src + AudioSegment.silent(
+                        duration=post_dur - len(post_src), frame_rate=target_rate
+                    )
+                track_chunk = track_chunk.overlay(post_src, position=post_start)
+        elif (cursor.fade_in_stems is not None
+              and cursor.fade_in_end_ms is not None
+              and start_ms < cursor.fade_in_end_ms
+              and stem_layers):
+            # Stem-blended fade_in: mix individual stems at their specified volumes
+            src_start   = cursor.source_pos_ms
+            stem_mixed: Optional[AudioSegment] = None
+            for stem_name, vol in cursor.fade_in_stems.items():
+                sl = stem_layers.get((tid, stem_name))
+                if sl is None:
+                    continue
+                sl_chunk = sl[src_start : src_start + chunk_ms]
+                if len(sl_chunk) < chunk_ms:
+                    sl_chunk = sl_chunk + AudioSegment.silent(
+                        duration=chunk_ms - len(sl_chunk), frame_rate=target_rate
+                    )
+                if vol > 0:
+                    sl_chunk = sl_chunk + float(20 * np.log10(max(vol, 0.001)))
+                else:
+                    sl_chunk = AudioSegment.silent(duration=chunk_ms, frame_rate=target_rate)
+                stem_mixed = sl_chunk if stem_mixed is None else stem_mixed.overlay(sl_chunk)
+            if stem_mixed is not None:
+                track_chunk = stem_mixed
+            else:
+                track_chunk = src[src_start : src_start + chunk_ms]
+                if len(track_chunk) < chunk_ms:
+                    track_chunk = track_chunk + AudioSegment.silent(
+                        duration=chunk_ms - len(track_chunk), frame_rate=target_rate
+                    )
         else:
             src_start   = cursor.source_pos_ms
             track_chunk = src[src_start : src_start + chunk_ms]
@@ -456,15 +504,26 @@ def render(script: MixScript, output_path: str, export_mp3: bool = False) -> str
                 layers[tid] = layer[:swap_ms] + tail
 
             # Restore incoming bass: overlay the bass stem from the correct source position.
+            # Bound to the next play action for in_tid so we don't double the bass after
+            # the full-track play overlay fires (which already contains bass).
             if action.incoming_track:
                 in_tid = action.incoming_track
                 bass_stem = stem_layers.get((in_tid, "bass"))
                 if bass_stem is not None and in_tid in active_state:
                     state = active_state[in_tid]
-                    # How far into the source is the incoming track at swap_ms?
                     stem_offset = state["from_ms"] + (swap_ms - state["at_ms"])
                     stem_offset = max(0, stem_offset)
                     bass_tail = bass_stem[stem_offset:]
+                    # Find next play action for in_tid after swap_ms
+                    next_play_ms: Optional[int] = None
+                    for a in script.actions:
+                        if a.type == "play" and a.track == in_tid:
+                            a_ms = bars_to_ms(a.at_bar or 0, ref_bpm)
+                            if a_ms > swap_ms:
+                                if next_play_ms is None or a_ms < next_play_ms:
+                                    next_play_ms = a_ms
+                    if next_play_ms is not None:
+                        bass_tail = bass_tail[:next_play_ms - swap_ms]
                     if len(bass_tail) > 0:
                         layers[in_tid] = layers[in_tid].overlay(bass_tail, position=swap_ms)
 
