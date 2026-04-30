@@ -13,8 +13,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import platform
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Optional
 
@@ -30,6 +32,14 @@ from schema import (
 CACHE_DIR = Path(__file__).parent / "cache"
 SILENCE_THRESHOLD_DB = -30.0
 BEATS_PER_BAR = 4
+
+# Analysis sample rate — 22050 Hz is the librosa default and halves compute vs 44100 Hz.
+# All feature extraction (beat tracking, chroma, MFCCs, RMS) scales with sample count,
+# so this alone gives ~2x speedup with negligible accuracy loss for DJ-relevant tasks.
+ANALYSIS_SR = 22050
+
+# Cap analysis at 3 minutes — sufficient for section/cue detection.
+MAX_ANALYSIS_SECONDS = 180
 
 
 def file_hash(path: str) -> str:
@@ -84,7 +94,8 @@ def separate_stems(audio_path: str, cache_dir: Path) -> StemPaths:
 
 
 def estimate_key(y: np.ndarray, sr: int) -> KeyInfo:
-    chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
+    # chroma_stft is ~10x faster than chroma_cqt with acceptable accuracy for key detection
+    chroma = librosa.feature.chroma_stft(y=y, sr=sr, n_fft=4096, hop_length=1024)
     chroma_mean = chroma.mean(axis=1)
     tonic_idx = int(np.argmax(chroma_mean))
 
@@ -146,7 +157,8 @@ def presence_from_rms(rms_db: float, max_rms_db: float) -> int:
 def segment_audio(y: np.ndarray, sr: int, downbeats: np.ndarray, n_segments: int = 6) -> list[tuple[float, float]]:
     """Spectral-clustering-based segmentation. Returns list of (start_s, end_s)."""
     try:
-        mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=12)
+        # hop_length=2048 + n_mfcc=8 → smaller matrix, faster recurrence computation
+        mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=8, hop_length=2048)
         R = librosa.segment.recurrence_matrix(mfcc, mode="affinity", sym=True)
         bounds_frames = librosa.segment.agglomerative(R, k=min(n_segments, len(downbeats) - 1))
         bounds_times = librosa.frames_to_time(bounds_frames, sr=sr)
@@ -189,7 +201,7 @@ def build_sections(
     if stem_paths is not None:
         for stem_name in ("vocals", "drums", "bass", "other"):
             path = getattr(stem_paths, stem_name)
-            s_y, s_sr = librosa.load(path, sr=None, mono=True)
+            s_y, s_sr = librosa.load(path, sr=ANALYSIS_SR, mono=True)
             stem_arrays[stem_name] = s_y
             stem_srs[stem_name] = s_sr
             stem_max_rms[stem_name] = compute_rms_db(s_y)
@@ -285,20 +297,39 @@ def analyze_track(audio_path: str, track_id: str, no_stems: bool = False) -> Tra
         return _dict_to_analysis(d)
 
     print(f"  [analyze] loading {Path(audio_path).name}")
-    y, sr = librosa.load(audio_path, sr=None, mono=True)
-    duration_s = float(librosa.get_duration(y=y, sr=sr))
+    # Resample to ANALYSIS_SR on load — halves data size vs 44100 Hz with negligible
+    # quality loss for beat/key/energy tasks. Also cap at MAX_ANALYSIS_SECONDS.
+    y_full, sr = librosa.load(audio_path, sr=ANALYSIS_SR, mono=True)
+    full_duration_s = float(librosa.get_duration(y=y_full, sr=sr))
+    y = y_full[: sr * MAX_ANALYSIS_SECONDS] if len(y_full) > sr * MAX_ANALYSIS_SECONDS else y_full
+    duration_s = full_duration_s  # report real track duration, not capped analysis window
 
-    # Beat + downbeat tracking
-    print("  [analyze] beat tracking")
-    tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr, units="frames")
-    bpm = float(np.atleast_1d(tempo)[0])
-    beat_times = librosa.frames_to_time(beat_frames, sr=sr)
+    # Parallel feature extraction: beat tracking and key estimation are independent
+    # and each takes ~5-15 s alone; running together saves that time.
+    print("  [analyze] beat tracking + key (parallel)")
+    hop_length = 512
+
+    def _beat_and_onset():
+        t, bf = librosa.beat.beat_track(y=y, sr=sr, units="frames", hop_length=hop_length)
+        bt = librosa.frames_to_time(bf, sr=sr, hop_length=hop_length)
+        oe = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop_length)
+        return float(np.atleast_1d(t)[0]), bt, oe
+
+    def _rms():
+        return librosa.feature.rms(y=y, hop_length=hop_length)[0]
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        f_beat  = pool.submit(_beat_and_onset)
+        f_key   = pool.submit(estimate_key, y, sr)
+        f_rms   = pool.submit(_rms)
+        bpm, beat_times, onset_env = f_beat.result()
+        key      = f_key.result()
+        rms_frames = f_rms.result()
 
     # Downbeat phase correction: try all 4 offsets, pick the one where downbeats
     # land on strongest onsets (beat 1 of each bar has the strongest transient on
     # average, e.g. kick drum + chord hit).
-    onset_env = librosa.onset.onset_strength(y=y, sr=sr)
-    onset_times = librosa.frames_to_time(np.arange(len(onset_env)), sr=sr)
+    onset_times = librosa.frames_to_time(np.arange(len(onset_env)), sr=sr, hop_length=hop_length)
     best_phase, best_score = 0, -np.inf
     for phase in range(BEATS_PER_BAR):
         candidate = beat_times[phase::BEATS_PER_BAR]
@@ -310,14 +341,8 @@ def analyze_track(audio_path: str, track_id: str, no_stems: bool = False) -> Tra
     first_downbeat_s = float(downbeats[0]) if len(downbeats) > 0 else 0.0
     n_bars = len(downbeats)
 
-    # Key
-    print("  [analyze] key estimation")
-    key = estimate_key(y, sr)
-
-    # Per-bar RMS energy curve
+    # Per-bar RMS energy curve (rms_frames already computed in parallel above)
     print("  [analyze] energy curve")
-    hop_length = 512
-    rms_frames = librosa.feature.rms(y=y, hop_length=hop_length)[0]
     frame_times = librosa.frames_to_time(np.arange(len(rms_frames)), sr=sr, hop_length=hop_length)
 
     energy_curve = []

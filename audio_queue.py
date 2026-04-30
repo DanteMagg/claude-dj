@@ -2,10 +2,13 @@
 ChunkScheduler: renders MixScript chunks ahead of playback in a background thread,
 feeding an asyncio queue for the /ws/stream WebSocket endpoint.
 
-Wire format per chunk:
+Wire format per audio chunk:
   [uint32 little-endian: num_samples_per_channel]
   [uint32 little-endian: sample_rate_hz]
   [float32 little-endian: stereo interleaved PCM ...]
+
+End-of-mix sentinel: a 2-byte frame b"\\xff\\xff" (no valid audio has this header).
+The client should treat this as "mix complete" and stop requesting chunks.
 """
 from __future__ import annotations
 
@@ -18,10 +21,13 @@ import numpy as np
 from pydub import AudioSegment
 
 from executor import bars_to_ms, render_chunk
-from schema import MixScript
+from schema import MixAction, MixScript
 
 CHUNK_BARS    = 8   # ~16s at 120 BPM
 BUFFER_CHUNKS = 4   # keep ~4 chunks (~64s) ahead
+
+# Sentinel value sent to the client when the mix ends
+MIX_END_SENTINEL = b"\xff\xff"
 
 
 def segment_to_pcm(seg: AudioSegment) -> bytes:
@@ -38,6 +44,16 @@ def segment_to_pcm(seg: AudioSegment) -> bytes:
 
     header = struct.pack("<II", num_samples_per_ch, seg.frame_rate)
     return header + samples.astype("<f4").tobytes()
+
+
+def _total_mix_ms(script: MixScript, ref_bpm: float) -> int:
+    """Estimate the mix end time from the latest scheduled action."""
+    max_bar = 0
+    for a in script.actions:
+        bar = (a.at_bar or a.start_bar or a.bar or 0) + (a.duration_bars or 0)
+        if bar > max_bar:
+            max_bar = bar
+    return bars_to_ms(max_bar + 16, ref_bpm)  # +16 bars tail room
 
 
 class ChunkScheduler:
@@ -57,6 +73,7 @@ class ChunkScheduler:
         self.chunk_bars    = chunk_bars
         self.chunk_ms      = bars_to_ms(chunk_bars, ref_bpm)
         self.buffer_chunks = buffer_chunks
+        self.total_mix_ms  = _total_mix_ms(script, ref_bpm)
 
         self._playback_bar: int = 0  # bar the player is currently at
         self._render_bar:   int = 0  # next bar to render into the buffer
@@ -65,6 +82,9 @@ class ChunkScheduler:
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="chunk-render")
         self._running  = False
         self._fill_task: Optional[asyncio.Task] = None  # type: ignore[type-arg]
+
+        # Epoch incremented by seek() so in-flight renders can detect staleness.
+        # Only read/written from the asyncio event-loop thread — no mutex needed.
         self._render_epoch: int = 0
 
     async def start(self) -> None:
@@ -105,7 +125,7 @@ class ChunkScheduler:
         return self._queue.qsize() * self.chunk_bars
 
     async def _fill_loop(self) -> None:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         while self._running:
             if self._queue.full():
                 await asyncio.sleep(0.05)
@@ -114,6 +134,12 @@ class ChunkScheduler:
             bar_start = self._render_bar
             start_ms  = bars_to_ms(bar_start, self.ref_bpm)
             epoch     = self._render_epoch  # snapshot before yield point
+
+            # Past the end of the mix — send sentinel and stop filling
+            if start_ms >= self.total_mix_ms:
+                await self._queue.put(MIX_END_SENTINEL)
+                self._running = False
+                break
 
             try:
                 chunk: AudioSegment = await loop.run_in_executor(

@@ -2,12 +2,21 @@
 Claude DJ — FastAPI streaming server.
 
 Endpoints:
-  POST /api/analyze          start background track analysis
-  GET  /api/analyze/{job_id} poll analysis progress
-  POST /api/plan             call Claude, build MixScript, load audio, create session
-  GET  /api/status/{id}      current playback bar / buffer depth
-  WS   /ws/stream/{id}       stream float32 PCM chunks, accept seek messages
-  GET  /api/script/{id}      return the mix script JSON for a session
+  POST /api/analyze            start background track analysis
+  GET  /api/analyze/{job_id}   poll analysis progress
+  POST /api/plan               call Claude, return script + session_id immediately.
+                               Audio loading happens in background.
+  GET  /api/session/{id}       poll session loading status (loading/ready/error)
+  GET  /api/status/{id}        current playback bar / buffer depth (ready sessions only)
+  WS   /ws/stream/{id}         stream float32 PCM chunks; waits for session to be ready
+  GET  /api/script/{id}        return the mix script JSON for a session
+
+The split between /api/plan and session loading is intentional:
+  - /api/plan returns within seconds (just the Claude call).
+  - The frontend can show the script/transition log immediately.
+  - Audio loading (time-stretch, stem load) runs in the background.
+  - The WebSocket endpoint waits for "ready" before streaming starts.
+  - The client polls /api/session/{id} to show a progress indicator.
 
 Static frontend (dist/) is served at / when present.
 """
@@ -210,8 +219,62 @@ class PlanRequest(BaseModel):
     min_minutes: Optional[int] = None
 
 
+async def _load_session_audio(session_id: str) -> None:
+    """Background task: load + time-stretch tracks/stems, then mark session ready."""
+    sess = _sessions[session_id]
+    script: MixScript = sess["script"]
+    n = len(script.tracks)
+    try:
+        loop = asyncio.get_running_loop()
+
+        def _load_with_progress():
+            ref_bpm = float(np.median([t.bpm for t in script.tracks]))
+            loaded: dict[str, AudioSegment] = {}
+            for i, t in enumerate(script.tracks):
+                sess["load_progress"] = i
+                seg = load_track(t.path)
+                first_db_ms = int(t.first_downbeat_s * 1000)
+                if first_db_ms > 0:
+                    seg = seg[first_db_ms:]
+                loaded[t.id] = time_stretch(seg, t.bpm, ref_bpm)
+
+            target_rate = next(iter(loaded.values())).frame_rate
+            for tid in loaded:
+                if loaded[tid].frame_rate != target_rate:
+                    loaded[tid] = loaded[tid].set_frame_rate(target_rate)
+
+            stem_layers: dict[tuple[str, str], AudioSegment] = {}
+            for t in script.tracks:
+                stem_dir = _stem_dir_for_track(t.id, script)
+                for stem_name in ("drums", "bass", "vocals", "other"):
+                    path = stem_dir / f"{stem_name}.wav"
+                    if path.exists():
+                        seg = AudioSegment.from_wav(str(path))
+                        seg = time_stretch(seg, t.bpm, ref_bpm)
+                        if seg.frame_rate != target_rate:
+                            seg = seg.set_frame_rate(target_rate)
+                        stem_layers[(t.id, stem_name)] = seg
+
+            return loaded, stem_layers, ref_bpm
+
+        loaded, stem_layers, ref_bpm = await loop.run_in_executor(_bg_executor, _load_with_progress)
+
+        scheduler = ChunkScheduler(script, loaded, stem_layers, ref_bpm)
+        await scheduler.start()
+
+        sess.update(
+            status="ready",
+            scheduler=scheduler,
+            ref_bpm=ref_bpm,
+            load_progress=n,
+            load_total=n,
+        )
+    except Exception as exc:
+        sess.update(status="error", error=str(exc))
+
+
 @app.post("/api/plan")
-async def plan_mix(req: PlanRequest):
+async def plan_mix(req: PlanRequest, background_tasks: BackgroundTasks):
     job = _analyze_jobs.get(req.job_id)
     if not job or job["status"] != "done":
         return JSONResponse({"error": "analysis not ready"}, status_code=400)
@@ -227,7 +290,7 @@ async def plan_mix(req: PlanRequest):
             status_code=503,
         )
 
-    # Claude call (blocking) → run in thread pool
+    # Claude call only — this is the fast part (~5s)
     try:
         script: MixScript = await loop.run_in_executor(
             _bg_executor, direct_mix, analyses, req.model, req.min_minutes,
@@ -238,42 +301,66 @@ async def plan_mix(req: PlanRequest):
         raise
     script = normalize(script)
 
-    # Load audio (blocking, potentially slow for large files)
-    loaded, stem_layers, ref_bpm = await loop.run_in_executor(
-        _bg_executor, _load_audio_for_script, script,
-    )
-
+    # Register session immediately (status=loading) so the frontend can render the
+    # script and show a progress bar while audio loads in the background.
     session_id = str(uuid.uuid4())
-    scheduler  = ChunkScheduler(script, loaded, stem_layers, ref_bpm)
-    await scheduler.start()
-
     _sessions[session_id] = {
-        "script":    script,
-        "scheduler": scheduler,
-        "ref_bpm":   ref_bpm,
-        "tracks":    [dataclasses.asdict(t) for t in script.tracks],
+        "status":        "loading",
+        "script":        script,
+        "scheduler":     None,
+        "ref_bpm":       float(np.median([t.bpm for t in script.tracks])),
+        "tracks":        [dataclasses.asdict(t) for t in script.tracks],
+        "load_progress": 0,
+        "load_total":    len(script.tracks),
+        "error":         None,
     }
+
+    # Audio loading happens in background — client polls /api/session/{id}
+    background_tasks.add_task(_load_session_audio, session_id)
 
     return _sanitize({
         "session_id": session_id,
+        "status":     "loading",
         "script":     dataclasses.asdict(script),
-        "ref_bpm":    ref_bpm,
+        "ref_bpm":    _sessions[session_id]["ref_bpm"],
+        "load_total": len(script.tracks),
     })
 
 
-# ─── Status ───────────────────────────────────────────────────────────────────
+# ─── Session / Status ─────────────────────────────────────────────────────────
 
-@app.get("/api/status/{session_id}")
-async def get_status(session_id: str):
+@app.get("/api/session/{session_id}")
+async def get_session(session_id: str):
+    """Poll session loading state. Frontend should call this until status == 'ready'."""
     sess = _sessions.get(session_id)
     if not sess:
         return JSONResponse({"error": "session not found"}, status_code=404)
-    sched: ChunkScheduler = sess["scheduler"]
+    return {
+        "status":        sess["status"],
+        "load_progress": sess.get("load_progress", 0),
+        "load_total":    sess.get("load_total", 0),
+        "ref_bpm":       sess["ref_bpm"],
+        "tracks":        sess["tracks"],
+        "error":         sess.get("error"),
+    }
+
+
+@app.get("/api/status/{session_id}")
+async def get_status(session_id: str):
+    """Playback position + buffer depth (only meaningful once session is ready)."""
+    sess = _sessions.get(session_id)
+    if not sess:
+        return JSONResponse({"error": "session not found"}, status_code=404)
+    sched: Optional[ChunkScheduler] = sess.get("scheduler")
+    if sched is None:
+        return {"current_bar": 0, "buffer_depth_bars": 0,
+                "ref_bpm": sess["ref_bpm"], "status": sess["status"]}
     return {
         "current_bar":       sched.current_bar,
         "buffer_depth_bars": sched.buffer_depth_bars,
         "ref_bpm":           sess["ref_bpm"],
         "tracks":            sess["tracks"],
+        "status":            sess["status"],
     }
 
 
@@ -287,12 +374,38 @@ async def get_script(session_id: str):
 
 # ─── Stream ───────────────────────────────────────────────────────────────────
 
+from audio_queue import MIX_END_SENTINEL
+
+_SESSION_READY_TIMEOUT_S = 600  # wait up to 10 minutes for audio to load
+
+
 @app.websocket("/ws/stream/{session_id}")
 async def stream_audio(ws: WebSocket, session_id: str):
     await ws.accept()
     sess = _sessions.get(session_id)
     if not sess:
         await ws.close(code=4404)
+        return
+
+    # Wait for audio loading to complete before streaming starts.
+    # The client already knows the script; this delay only blocks audio playback.
+    waited = 0.0
+    while sess.get("status") == "loading":
+        await asyncio.sleep(0.5)
+        waited += 0.5
+        progress = sess.get("load_progress", 0)
+        total    = sess.get("load_total", 1)
+        await ws.send_text(json.dumps({
+            "type": "loading", "progress": progress, "total": total,
+        }))
+        if waited >= _SESSION_READY_TIMEOUT_S:
+            await ws.send_text(json.dumps({"type": "error", "msg": "audio loading timed out"}))
+            await ws.close()
+            return
+
+    if sess.get("status") == "error":
+        await ws.send_text(json.dumps({"type": "error", "msg": sess.get("error", "load failed")}))
+        await ws.close()
         return
 
     sched: ChunkScheduler = sess["scheduler"]
@@ -313,6 +426,10 @@ async def stream_audio(ws: WebSocket, session_id: str):
     try:
         while True:
             chunk_bytes = await sched.get_chunk()
+            if chunk_bytes == MIX_END_SENTINEL:
+                # Signal client that the mix is complete, then close cleanly
+                await ws.send_text(json.dumps({"type": "end"}))
+                break
             sched.advance()
             await ws.send_bytes(chunk_bytes)
     except WebSocketDisconnect:
