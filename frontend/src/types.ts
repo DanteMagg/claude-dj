@@ -42,6 +42,16 @@ export interface Session {
   session_id: string;
   script: MixScript;
   ref_bpm: number;
+  /** "loading" → audio is loading in bg; "ready" → WS can open; "error" → load failed */
+  status: string;
+  load_total: number;
+}
+
+export interface SessionPoll {
+  status: string;
+  load_progress: number;
+  load_total: number;
+  error: string | null;
 }
 
 export interface StatusResponse {
