@@ -1,0 +1,26 @@
+{
+  "mix_title": "Claude DJ Set — House 2026-04-30",
+  "reasoning": "T1 (Lindstrom, B major/1B, 120.2 BPM) and T2 (I Feel Fire, D#/Eb major/5B, 120.2 BPM) are 4 steps apart on the Camelot wheel — the widest clash we can manage. BPM is identical so no time-stretch needed. The approach is surgical stem layering to avoid bass-on-bass harmonic clash, which is where the 4-step distance is most audible. T1 energy dips to 3-4 around bars 130-133 — a rare low point in an otherwise sustained build. That window is used to drop T1's lows (EQ) and introduce T2's drums, vocals, and synths without bass. T2's bass only enters with the full play action at bar 144, by which point T1 is nearly fully faded. The bass-clash window is compressed to 4 bars (~8 seconds). T2 enters from its bar 16 (mid section B, full energy 6-7), giving an immediate energy payoff after T1's long slow build.",
+  "tracks": [
+    {
+      "id": "T1",
+      "path": "/Users/DantesFolder/Downloads/06TribulationsLindstromMix.mp3",
+      "bpm": 120.2,
+      "first_downbeat_s": 48.936
+    },
+    {
+      "id": "T2",
+      "path": "/Users/DantesFolder/Downloads/CROSSFADER MUSIC PACK (2021)/House/Roberto Marín Muñoz - I Feel Fire.mp3",
+      "bpm": 120.2,
+      "first_downbeat_s": 0.035
+    }
+  ],
+  "actions": [
+    { "type": "play",    "track": "T1", "at_bar": 0,   "from_bar": 0 },
+    { "type": "eq",      "track": "T1", "bar": 128,    "low": 0.0, "mid": 1.0, "high": 1.0 },
+    { "type": "fade_in", "track": "T2", "start_bar": 128, "duration_bars": 16,
+      "stems": { "drums": 0.85, "bass": 0.0, "vocals": 0.8, "other": 0.9 } },
+    { "type": "fade_out","track": "T1", "start_bar": 132, "duration_bars": 16 },
+    { "type": "play",    "track": "T2", "at_bar": 144, "from_bar": 16 }
+  ]
+}

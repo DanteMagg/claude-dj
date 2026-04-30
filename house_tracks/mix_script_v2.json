@@ -1,0 +1,26 @@
+{
+  "mix_title": "Claude DJ Set — House 2026-04-30 (skill v2)",
+  "reasoning": "Checklist (§6): (1) Phrase boundary — bar 160 = 5×32, the only 32-bar boundary inside T1's second low-energy dip (bars 151–166, energy 4). Both T2's bar 0 and mix bar 160 land on bar-1 downbeats. ✓ (2) BPM — identical 120.2, no stretch needed. ✓ (3) Key — 1B→5B = 4 steps, incompatible. Applying §3.6 damage limitation: overlap capped at 8 bars, T1 mids killed (mid=0.15) at bar 160 to strip harmonic content and vocals, no melodic blend. (4) Section alignment — T1 at bar 160 is mid-second-dip after its main peak (energy 4, post-peak descent). T2 cues from bar 0 (full intro). ✓ (5) Energy step — T1 energy 4 → T2 energy 6, a +2 jump. Permitted at a deliberate section boundary per §4.2. ✓ (6) Vocal collision — T1 has vocals=10 throughout; T2 has vocals=10 from bar 0. Two live vocals cannot overlap >2 bars (§1.4). Resolution: T1 mids cut at bar 160 (renders T1 vocals inaudible); T2 fade-in holds vocals=0.0; T2 vocals only enter at bar 168 via the play action, at which point T1 is fully faded. Zero vocal overlap. ✓ (7) Bass swap — T1 lows killed at bar 160 (EQ low=0.0). T2 bass=0.0 during the 8-bar fade-in window. T2 bass enters at bar 168 (play action, from_bar=8) as a single-downbeat swap with T1 gone. Complies with §3.1. ✓ (8) Crossfade length — 8 bars, per §3.6 rule 1 (incompatible key overrides genre default of 16–32 bars for house). ✓ (9) Stem order — drums(0.9) and other(0.85) enter first via fade_in; bass(0.0) and vocals(0.0) withheld until play action. Matches §3.2 layering order. ✓ Note: EQ action currently applies for 1 bar only (executor limitation); ideally T1 lows would be cut from T−16 bars per §3.1 full protocol.",
+  "tracks": [
+    {
+      "id": "T1",
+      "path": "/Users/DantesFolder/Downloads/06TribulationsLindstromMix.mp3",
+      "bpm": 120.2,
+      "first_downbeat_s": 48.936
+    },
+    {
+      "id": "T2",
+      "path": "/Users/DantesFolder/Downloads/CROSSFADER MUSIC PACK (2021)/House/Roberto Marín Muñoz - I Feel Fire.mp3",
+      "bpm": 120.2,
+      "first_downbeat_s": 0.035
+    }
+  ],
+  "actions": [
+    { "type": "play",     "track": "T1", "at_bar": 0,   "from_bar": 0 },
+    { "type": "eq",       "track": "T1", "bar": 160,    "low": 0.0, "mid": 0.15, "high": 1.0 },
+    { "type": "fade_in",  "track": "T2", "start_bar": 160, "duration_bars": 8,
+      "stems": { "drums": 0.9, "bass": 0.0, "vocals": 0.0, "other": 0.85 } },
+    { "type": "fade_out", "track": "T1", "start_bar": 162, "duration_bars": 6 },
+    { "type": "play",     "track": "T2", "at_bar": 168, "from_bar": 8 }
+  ]
+}

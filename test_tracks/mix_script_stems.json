@@ -1,0 +1,26 @@
+{
+  "mix_title": "Claude DJ Set — 2026-04-30",
+  "reasoning": "T1 (Demo Track 1, Fm/4A, 129.2 BPM) and T2 (No Broke Boys, G#m/1A, 132.5 BPM) are 3 steps apart on the Camelot wheel — normally a problem. Stem data reveals the solution: T2's section B (bars 0-30) has zero bass (presence=0) and no drums to speak of (presence=1) — it's purely vocals and synths. T1's section C (bars 49-63) is a breakdown where T1's own bass drops to presence=4. By fading in only T2's vocals+other stems over T1's breakdown, there is no bass-on-bass harmonic clash at all — the key incompatibility is inaudible when only melodic/vocal material is layered. T1's bass (the main clash source) is EQ'd out at bar 52 to clear the low end. T1 fades fully by bar 62. T2 then continues from its bar 8 (still in section B intro), building naturally toward its first drop at T2's bar 30 which hits the mix at approximately bar 82 — a satisfying payoff after the clean transition.",
+  "tracks": [
+    {
+      "id": "T1",
+      "path": "/Users/DantesFolder/Music/PioneerDJ/Demo Tracks/Demo Track 1.mp3",
+      "bpm": 129.2,
+      "first_downbeat_s": 0.046
+    },
+    {
+      "id": "T2",
+      "path": "/Users/DantesFolder/Downloads/Disco Lines - No Broke Boys.mp3",
+      "bpm": 132.5,
+      "first_downbeat_s": 0.813
+    }
+  ],
+  "actions": [
+    { "type": "play",    "track": "T1", "at_bar": 0,  "from_bar": 0 },
+    { "type": "eq",      "track": "T1", "bar": 52,    "low": 0.0, "mid": 0.9, "high": 1.0 },
+    { "type": "fade_in", "track": "T2", "start_bar": 52, "duration_bars": 8,
+      "stems": { "vocals": 0.9, "other": 0.85, "drums": 0.0, "bass": 0.0 } },
+    { "type": "fade_out","track": "T1", "start_bar": 54, "duration_bars": 8 },
+    { "type": "play",    "track": "T2", "at_bar": 60, "from_bar": 8 }
+  ]
+}
