@@ -315,16 +315,22 @@ def explain_script(script: MixScript) -> None:
         for eq in sorted(eqs, key=lambda a: a.bar or 0):
             print(f"    eq         bar {eq.bar}  {eq.track}  low={eq.low} mid={eq.mid} hi={eq.high}")
 
-    # Overlap windows
-    fi_list = sorted(fade_ins.values(), key=lambda a: a.start_bar or 0)
+    # Overlap windows — pair by temporal intersection, not "first other track"
+    fi_list  = sorted(fade_ins.values(),  key=lambda a: a.start_bar or 0)
+    fo_list  = sorted(fade_outs.values(), key=lambda a: a.start_bar or 0)
     if fi_list:
         print("\n  Transitions:")
         for fi in fi_list:
-            fo = fade_outs.get(next(
-                (t.id for t in script.tracks if t.id != fi.track), fi.track
-            ))
             fi_start = fi.start_bar or 0
             fi_end   = fi_start + (fi.duration_bars or 0)
+            # find fade_out from a different track whose window intersects
+            fo = next(
+                (fo for fo in fo_list
+                 if fo.track != fi.track
+                 and (fo.start_bar or 0) < fi_end
+                 and fi_start < (fo.start_bar or 0) + (fo.duration_bars or 0)),
+                None,
+            )
             if fo:
                 fo_start = fo.start_bar or 0
                 fo_end   = fo_start + (fo.duration_bars or 0)

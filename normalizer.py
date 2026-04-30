@@ -63,25 +63,40 @@ def _clamp_eq(actions: list[MixAction]) -> list[MixAction]:
     return result
 
 
-def _find_transition(actions: list[MixAction]) -> tuple[int | None, int | None, str | None]:
-    """Return (overlap_start_bar, overlap_end_bar, outgoing_track_id), or all None."""
-    fade_in  = next((a for a in actions if a.type == "fade_in"),  None)
-    fade_out = next((a for a in actions if a.type == "fade_out"), None)
-    if not fade_in or not fade_out:
-        return None, None, None
-
-    fi_start = fade_in.start_bar or 0
-    fi_end   = fi_start + (fade_in.duration_bars or 0)
-    fo_start = fade_out.start_bar or 0
-    fo_end   = fo_start + (fade_out.duration_bars or 0)
-
-    return min(fi_start, fo_start), max(fi_end, fo_end), fade_out.track
-
-
 def _action_sort_key(a: MixAction) -> int:
     candidates = [a.at_bar, a.start_bar, a.bar]
     valid = [b for b in candidates if b is not None]
     return min(valid) if valid else 0
+
+
+def _find_all_transitions(
+    actions: list[MixAction],
+) -> list[tuple[int, int, str, str]]:
+    """
+    Return one tuple per (fade_out, fade_in) pair from different tracks whose time
+    windows overlap: (overlap_start_bar, overlap_end_bar, outgoing_tid, incoming_tid).
+    Handles any number of transitions in one pass — safe for 3+ track sets.
+    """
+    fade_ins  = [a for a in actions if a.type == "fade_in"]
+    fade_outs = [a for a in actions if a.type == "fade_out"]
+
+    transitions = []
+    for fi in fade_ins:
+        fi_start = fi.start_bar or 0
+        fi_end   = fi_start + (fi.duration_bars or 0)
+        for fo in fade_outs:
+            if fo.track == fi.track:
+                continue
+            fo_start = fo.start_bar or 0
+            fo_end   = fo_start + (fo.duration_bars or 0)
+            if fo_start < fi_end and fi_start < fo_end:  # windows intersect
+                transitions.append((
+                    min(fi_start, fo_start),
+                    max(fi_end, fo_end),
+                    fo.track,   # outgoing
+                    fi.track,   # incoming
+                ))
+    return transitions
 
 
 def _inject_play_for_orphaned_fade_in(actions: list[MixAction]) -> list[MixAction]:
@@ -113,38 +128,47 @@ def _inject_play_for_orphaned_fade_in(actions: list[MixAction]) -> list[MixActio
 
 
 def _inject_bass_swap_if_missing(actions: list[MixAction]) -> list[MixAction]:
-    overlap_start, overlap_end, outgoing = _find_transition(actions)
-    if overlap_start is None:
+    """
+    For every detected transition window, ensure exactly one bass_swap exists and
+    that it carries incoming_track. Works for any number of transitions (3+ tracks).
+    """
+    transitions = _find_all_transitions(actions)
+    if not transitions:
         return actions
 
-    has_swap = any(
-        a.type == "bass_swap"
-        and overlap_start <= (a.at_bar or a.bar or 0) <= overlap_end
-        for a in actions
-    )
-    if has_swap:
-        # Backfill incoming_track on any swap that's missing it
-        fade_in = next((a for a in actions if a.type == "fade_in"), None)
-        if fade_in:
-            patched = []
-            for a in actions:
+    patched  = list(actions)
+    injected: list[MixAction] = []
+
+    for overlap_start, overlap_end, outgoing, incoming in transitions:
+        swaps_in_window = [
+            a for a in patched
+            if a.type == "bass_swap"
+            and a.track == outgoing
+            and overlap_start <= (a.at_bar or a.bar or 0) <= overlap_end
+        ]
+
+        if swaps_in_window:
+            # Backfill incoming_track where absent
+            new_patched = []
+            for a in patched:
                 if (
                     a.type == "bass_swap"
+                    and a.track == outgoing
                     and overlap_start <= (a.at_bar or a.bar or 0) <= overlap_end
                     and a.incoming_track is None
                 ):
-                    a = dataclasses.replace(a, incoming_track=fade_in.track)
-                patched.append(a)
-            return patched
-        return actions
+                    a = dataclasses.replace(a, incoming_track=incoming)
+                new_patched.append(a)
+            patched = new_patched
+        else:
+            # Inject at nearest phrase boundary to window midpoint
+            mid = (overlap_start + overlap_end) // 2
+            swap_bar = round(mid / PHRASE) * PHRASE
+            swap_bar = max(overlap_start, min(swap_bar, overlap_end))
+            injected.append(MixAction(
+                type="bass_swap", track=outgoing, at_bar=swap_bar, incoming_track=incoming,
+            ))
 
-    fade_in = next((a for a in actions if a.type == "fade_in"), None)
-    incoming = fade_in.track if fade_in else None
-
-    mid = (overlap_start + overlap_end) // 2
-    # Round to nearest phrase boundary (not floor — avoids always picking the start)
-    swap_bar = round(mid / PHRASE) * PHRASE
-    swap_bar = max(overlap_start, min(swap_bar, overlap_end))
-
-    swap = MixAction(type="bass_swap", track=outgoing, at_bar=swap_bar, incoming_track=incoming)
-    return sorted(actions + [swap], key=_action_sort_key)
+    if injected:
+        return sorted(patched + injected, key=_action_sort_key)
+    return patched
