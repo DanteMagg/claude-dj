@@ -135,5 +135,20 @@ def dump(tracks_dir, output, no_stems):
         click.echo(f"  {a.id}: {a.title} — {a.bpm:.1f} BPM, {a.key.camelot} ({a.key.standard}), {a.duration_s:.0f}s")
 
 
+@cli.command()
+@click.option("--host", default="127.0.0.1", show_default=True, help="Bind host")
+@click.option("--port", default=8000, show_default=True, help="Bind port")
+@click.option("--reload", is_flag=True, help="Enable auto-reload (dev mode)")
+def serve(host, port, reload):
+    """Start the Claude DJ streaming server (FastAPI + WebSocket)."""
+    sys.path.insert(0, str(Path(__file__).parent))
+    try:
+        import uvicorn
+    except ImportError:
+        raise click.ClickException("uvicorn not installed — run: pip install uvicorn[standard]")
+    click.echo(f"Starting Claude DJ server on http://{host}:{port}")
+    uvicorn.run("server:app", host=host, port=port, reload=reload)
+
+
 if __name__ == "__main__":
     cli()

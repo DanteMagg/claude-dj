@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
@@ -8,6 +9,25 @@ from pydub import AudioSegment
 from pydub.effects import high_pass_filter, low_pass_filter
 
 from schema import MixAction, MixScript, MixTrackRef
+
+
+@dataclass
+class TrackCursor:
+    """Playback state of one track at a specific point in mix time."""
+    active: bool = False
+    source_pos_ms: int = 0          # position in loaded[tid] at the queried mix_ms
+    mix_start_ms: int = 0           # mix ms when this play/fade_in started
+    play_from_ms: int = 0           # source offset at mix_start_ms
+    fade_in_start_ms: Optional[int] = None
+    fade_in_end_ms: Optional[int] = None
+    fade_out_start_ms: Optional[int] = None
+    fade_out_end_ms: Optional[int] = None
+    bass_cut: bool = False          # True after bass_swap
+    eq: tuple[float, float, float] = field(default_factory=lambda: (1.0, 1.0, 1.0))
+    loop_start_ms: Optional[int] = None
+    loop_phrase_ms: Optional[int] = None
+    loop_end_ms: Optional[int] = None
+    loop_source_offset: int = 0     # source pos at loop_start_ms
 
 
 def bars_to_ms(bars: float, bpm: float) -> int:
@@ -73,6 +93,226 @@ def _stem_dir_for_track(track_id: str, script: MixScript) -> Path:
             h = file_hash(t.path)
             return Path(__file__).parent / "cache" / h / "stems"
     return Path("/nonexistent")
+
+
+def _apply_gain_ramp(
+    audio: AudioSegment,
+    chunk_start_ms: float,
+    ramp_start_ms: float,
+    ramp_end_ms: float,
+    gain_at_ramp_start: float,
+    gain_at_ramp_end: float,
+) -> AudioSegment:
+    """
+    Apply a time-accurate gain ramp over [ramp_start_ms, ramp_end_ms].
+    Outside that window the gain is clamped to the nearer endpoint value.
+    chunk_start_ms is the mix-time position of sample 0 in `audio`.
+    """
+    max_val = float(1 << (audio.sample_width * 8 - 1))
+    samples = np.array(audio.get_array_of_samples(), dtype=np.float32)
+    n_frames = len(samples) // audio.channels
+
+    chunk_end_ms = chunk_start_ms + len(audio)
+    t = np.linspace(chunk_start_ms, chunk_end_ms, n_frames, endpoint=False)
+
+    ramp_dur = ramp_end_ms - ramp_start_ms
+    if ramp_dur <= 0:
+        gain = np.full(n_frames, gain_at_ramp_start, dtype=np.float32)
+    else:
+        frac = np.clip((t - ramp_start_ms) / ramp_dur, 0.0, 1.0)
+        gain = (gain_at_ramp_start + (gain_at_ramp_end - gain_at_ramp_start) * frac).astype(np.float32)
+
+    if audio.channels == 2:
+        gain = np.repeat(gain, 2)
+    out = np.clip(samples * gain[: len(samples)], -max_val, max_val - 1).astype(np.int16)
+    return audio._spawn(out.tobytes())
+
+
+def compute_cursors_at_ms(
+    script: MixScript,
+    ref_bpm: float,
+    target_ms: int,
+) -> dict[str, TrackCursor]:
+    """
+    Replay all MixActions up to target_ms using pure bar arithmetic (no audio I/O).
+    Returns the playback state of every track at that moment.
+    """
+    cursors: dict[str, TrackCursor] = {t.id: TrackCursor() for t in script.tracks}
+
+    def sort_key(a: MixAction) -> int:
+        candidates = [a.at_bar, a.start_bar, a.bar]
+        return min((b for b in candidates if b is not None), default=0)
+
+    for action in sorted(script.actions, key=sort_key):
+        tid = action.track
+        c = cursors[tid]
+
+        if action.type == "play":
+            at_ms   = bars_to_ms(action.at_bar or 0,   ref_bpm)
+            from_ms = bars_to_ms(action.from_bar or 0, ref_bpm)
+            if at_ms <= target_ms:
+                c.active            = True
+                c.mix_start_ms      = at_ms
+                c.play_from_ms      = from_ms
+                c.fade_in_start_ms  = None
+                c.fade_in_end_ms    = None
+                c.fade_out_start_ms = None
+                c.fade_out_end_ms   = None
+                c.loop_start_ms     = None
+
+        elif action.type == "fade_in":
+            at_ms   = bars_to_ms(action.start_bar or 0,      ref_bpm)
+            from_ms = bars_to_ms(action.from_bar or 0,       ref_bpm)
+            dur_ms  = bars_to_ms(action.duration_bars or 8,  ref_bpm)
+            if at_ms <= target_ms:
+                c.active           = True
+                c.mix_start_ms     = at_ms
+                c.play_from_ms     = from_ms
+                c.fade_in_start_ms = at_ms
+                c.fade_in_end_ms   = at_ms + dur_ms
+
+        elif action.type == "fade_out":
+            start_ms = bars_to_ms(action.start_bar or 0,     ref_bpm)
+            dur_ms   = bars_to_ms(action.duration_bars or 8, ref_bpm)
+            if start_ms <= target_ms:
+                c.fade_out_start_ms = start_ms
+                c.fade_out_end_ms   = start_ms + dur_ms
+                if target_ms >= start_ms + dur_ms:
+                    c.active = False
+
+        elif action.type == "bass_swap":
+            swap_ms = bars_to_ms(action.at_bar or 0, ref_bpm)
+            if swap_ms <= target_ms:
+                c.bass_cut = True
+                if action.incoming_track:
+                    inc = cursors.get(action.incoming_track)
+                    if inc:
+                        inc.bass_cut = False  # bass restored on incoming
+
+        elif action.type == "eq":
+            bar_ms = bars_to_ms(action.bar or 0, ref_bpm)
+            if bar_ms <= target_ms:
+                c.eq = (
+                    action.low  if action.low  is not None else 1.0,
+                    action.mid  if action.mid  is not None else 1.0,
+                    action.high if action.high is not None else 1.0,
+                )
+
+        elif action.type == "loop":
+            loop_start_ms  = bars_to_ms(action.start_bar or 0,    ref_bpm)
+            loop_phrase_ms = bars_to_ms(action.loop_bars or 8,    ref_bpm)
+            loop_repeats   = action.loop_repeats or 1
+            loop_end_ms    = loop_start_ms + loop_phrase_ms * loop_repeats
+            if loop_start_ms <= target_ms < loop_end_ms:
+                c.loop_start_ms     = loop_start_ms
+                c.loop_phrase_ms    = loop_phrase_ms
+                c.loop_end_ms       = loop_end_ms
+                c.loop_source_offset = c.play_from_ms + (loop_start_ms - c.mix_start_ms)
+            elif target_ms >= loop_end_ms:
+                c.loop_start_ms = None  # loop completed
+
+    # Compute source_pos_ms for every active track
+    for c in cursors.values():
+        if not c.active:
+            c.source_pos_ms = 0
+            continue
+        if c.loop_start_ms is not None and c.loop_phrase_ms:
+            elapsed_in_loop = target_ms - c.loop_start_ms
+            pos_in_phrase   = elapsed_in_loop % c.loop_phrase_ms
+            c.source_pos_ms = max(0, c.loop_source_offset + pos_in_phrase)
+        else:
+            c.source_pos_ms = max(0, c.play_from_ms + (target_ms - c.mix_start_ms))
+
+    return cursors
+
+
+def render_chunk(
+    script: MixScript,
+    loaded: dict[str, AudioSegment],
+    stem_layers: dict[tuple[str, str], AudioSegment],
+    ref_bpm: float,
+    start_ms: int,
+    chunk_ms: int,
+) -> AudioSegment:
+    """
+    Render a time window [start_ms, start_ms+chunk_ms) of the mix without building
+    the full timeline. Suitable for real-time streaming playback.
+
+    Fade-in stem volumes are approximated as a single gain ramp (full per-stem mixing
+    is only available via the offline render() path).
+    """
+    if not loaded:
+        return AudioSegment.silent(duration=chunk_ms)
+
+    target_rate = next(iter(loaded.values())).frame_rate
+    end_ms      = start_ms + chunk_ms
+    cursors     = compute_cursors_at_ms(script, ref_bpm, start_ms)
+    canvas      = AudioSegment.silent(duration=chunk_ms, frame_rate=target_rate)
+
+    for tid, cursor in cursors.items():
+        if not cursor.active:
+            continue
+        src = loaded.get(tid)
+        if src is None:
+            continue
+
+        # ── Source slice ─────────────────────────────────────────────────────
+        if cursor.loop_start_ms is not None and cursor.loop_phrase_ms:
+            # Loop mode: cycle the phrase within this chunk
+            phrase_ms = cursor.loop_phrase_ms
+            phrase    = src[cursor.loop_source_offset : cursor.loop_source_offset + phrase_ms]
+            if len(phrase) == 0:
+                continue
+            track_chunk = AudioSegment.silent(duration=chunk_ms, frame_rate=target_rate)
+            elapsed      = start_ms - cursor.loop_start_ms
+            pos_in_phrase = elapsed % phrase_ms
+            filled = 0
+            while filled < chunk_ms:
+                avail = min(phrase_ms - pos_in_phrase, chunk_ms - filled)
+                track_chunk = track_chunk.overlay(
+                    phrase[pos_in_phrase : pos_in_phrase + avail], position=filled
+                )
+                filled       += avail
+                pos_in_phrase = 0
+        else:
+            src_start   = cursor.source_pos_ms
+            track_chunk = src[src_start : src_start + chunk_ms]
+            if len(track_chunk) < chunk_ms:
+                track_chunk = track_chunk + AudioSegment.silent(
+                    duration=chunk_ms - len(track_chunk), frame_rate=target_rate
+                )
+
+        # ── Gain ramps ───────────────────────────────────────────────────────
+        if (cursor.fade_in_start_ms is not None
+                and cursor.fade_in_end_ms is not None
+                and start_ms < cursor.fade_in_end_ms):
+            track_chunk = _apply_gain_ramp(
+                track_chunk, start_ms,
+                cursor.fade_in_start_ms, cursor.fade_in_end_ms,
+                0.0, 1.0,
+            )
+
+        if (cursor.fade_out_start_ms is not None
+                and cursor.fade_out_end_ms is not None
+                and start_ms < cursor.fade_out_end_ms):
+            track_chunk = _apply_gain_ramp(
+                track_chunk, start_ms,
+                cursor.fade_out_start_ms, cursor.fade_out_end_ms,
+                1.0, 0.0,
+            )
+
+        # ── Bass cut ─────────────────────────────────────────────────────────
+        if cursor.bass_cut:
+            track_chunk = high_pass_filter(track_chunk, 200)
+
+        # ── EQ ───────────────────────────────────────────────────────────────
+        low, mid, hi = cursor.eq
+        if (low, mid, hi) != (1.0, 1.0, 1.0):
+            track_chunk = apply_eq(track_chunk, low, mid, hi)
+
+        canvas = canvas.overlay(track_chunk)
+
+    return canvas
 
 
 def render(script: MixScript, output_path: str, export_mp3: bool = False) -> str:
