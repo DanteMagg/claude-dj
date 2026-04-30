@@ -1,32 +1,43 @@
 import { useCallback, useRef, useState } from "react";
+import { apiFetch } from "../api";
 import type { AnalysisJob } from "../types";
 
 interface Props {
   onJobReady: (jobId: string) => void;
 }
 
+declare global {
+  interface Window {
+    electron?: {
+      selectFolder: () => Promise<string | null>;
+      showInFolder: (path: string) => void;
+      isElectron: true;
+    };
+  }
+}
+
 export default function DropZone({ onJobReady }: Props) {
-  const [dragging, setDragging] = useState(false);
-  const [job, setJob] = useState<AnalysisJob | null>(null);
-  const [jobId, setJobId] = useState<string | null>(null);
-  const [dirPath, setDirPath] = useState("");
+  const [job,    setJob]    = useState<AnalysisJob | null>(null);
+  const [jobId,  setJobId]  = useState<string | null>(null);
+  const [folder, setFolder] = useState<string>("");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
 
-  const startAnalysis = useCallback(async (path: string) => {
-    if (!path.trim()) return;
+  const startAnalysis = useCallback(async (dirPath: string) => {
+    if (!dirPath.trim()) return;
     setJob({ status: "running", progress: 0, total: 0, analyses: [], error: null });
+    setJobId(null);
 
-    const res = await fetch("/api/analyze", {
-      method: "POST",
+    const res  = await apiFetch("/api/analyze", {
+      method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tracks_dir: path.trim() }),
+      body:    JSON.stringify({ tracks_dir: dirPath.trim() }),
     });
     const data = (await res.json()) as { job_id: string };
     setJobId(data.job_id);
 
+    clearInterval(pollRef.current!);
     pollRef.current = setInterval(async () => {
-      const r = await fetch(`/api/analyze/${data.job_id}`);
+      const r = await apiFetch(`/api/analyze/${data.job_id}`);
       const j = (await r.json()) as AnalysisJob;
       setJob(j);
       if (j.status === "done" || j.status === "error") {
@@ -36,151 +47,116 @@ export default function DropZone({ onJobReady }: Props) {
     }, 800);
   }, [onJobReady]);
 
-  const onDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      setDragging(false);
-      const items = Array.from(e.dataTransfer.items);
-      const entry = items[0]?.webkitGetAsEntry?.();
-      if (entry?.isDirectory) {
-        // Extract path from the dropped folder name (limited in browser)
-        const name = e.dataTransfer.files[0]?.name ?? "";
-        // The server needs the full FS path; prompt user to type it if drag fails
-        if (name) setDirPath(name);
+  const pickFolder = useCallback(async () => {
+    if (window.electron) {
+      const picked = await window.electron.selectFolder();
+      if (picked) {
+        setFolder(picked);
+        await startAnalysis(picked);
       }
-    },
-    [],
-  );
+    }
+  }, [startAnalysis]);
 
   const pct = job && job.total > 0 ? Math.round((job.progress / job.total) * 100) : 0;
+  const isElectron = !!window.electron;
 
   return (
-    <div className="dropzone-wrap">
-      <div
-        className={`dropzone ${dragging ? "drag-over" : ""}`}
-        onDragEnter={() => setDragging(true)}
-        onDragLeave={() => setDragging(false)}
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={onDrop}
-        onClick={() => fileRef.current?.click()}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => e.key === "Enter" && fileRef.current?.click()}
-      >
-        <span className="dropzone-icon">🎵</span>
-        <span className="dropzone-label">
-          {dragging ? "Drop folder here" : "Click or drag a music folder"}
-        </span>
-        <input
-          ref={fileRef}
-          type="file"
-          // @ts-expect-error — webkitdirectory is non-standard
-          webkitdirectory="true"
-          multiple
-          style={{ display: "none" }}
-          onChange={(e) => {
-            const files = Array.from(e.target.files ?? []);
-            if (files.length > 0) {
-              // Derive folder path from the relative path prefix
-              const rel = files[0]?.webkitRelativePath ?? "";
-              const dir = rel.split("/")[0] ?? "";
-              setDirPath(dir);
-            }
-          }}
-        />
-      </div>
-
-      <div className="dir-row">
-        <input
-          className="dir-input"
-          type="text"
-          placeholder="/absolute/path/to/tracks"
-          value={dirPath}
-          onChange={(e) => setDirPath(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && startAnalysis(dirPath)}
-        />
-        <button
-          className="btn-primary"
-          disabled={!dirPath.trim() || job?.status === "running"}
-          onClick={() => startAnalysis(dirPath)}
-        >
-          Analyze
+    <div className="dz-wrap">
+      {isElectron ? (
+        /* Native picker — the clean path */
+        <button className="dz-pick-btn" onClick={pickFolder} disabled={job?.status === "running"}>
+          <span className="dz-pick-icon">📂</span>
+          <span>{folder ? folder.split("/").pop() : "Choose Music Folder…"}</span>
         </button>
-      </div>
+      ) : (
+        /* Browser fallback: manual path entry */
+        <div className="dz-row">
+          <input
+            className="dz-input"
+            type="text"
+            placeholder="/absolute/path/to/tracks"
+            value={folder}
+            onChange={(e) => setFolder(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && startAnalysis(folder)}
+          />
+          <button
+            className="dz-analyze-btn"
+            disabled={!folder.trim() || job?.status === "running"}
+            onClick={() => startAnalysis(folder)}
+          >
+            Analyze
+          </button>
+        </div>
+      )}
 
       {job && (
-        <div className="analysis-status">
+        <div className="dz-status">
           {job.status === "running" && (
             <>
-              <div className="progress-bar-wrap">
-                <div className="progress-bar" style={{ width: `${pct}%` }} />
+              <div className="dz-progress-wrap">
+                <div className="dz-progress-fill" style={{ width: `${pct}%` }} />
               </div>
-              <span className="status-text">
-                Analyzing… {job.progress}/{job.total} tracks
+              <span className="dz-status-txt">
+                Analyzing… {job.progress}/{job.total}
               </span>
             </>
           )}
           {job.status === "done" && (
-            <span className="status-text ok">
-              ✓ {job.total} track{job.total !== 1 ? "s" : ""} analyzed
-              {jobId && <span className="job-id"> · job {jobId.slice(0, 8)}</span>}
+            <span className="dz-status-txt ok">
+              ✓ {job.total} track{job.total !== 1 ? "s" : ""} ready
+              {jobId && <span className="dz-jid"> · {jobId.slice(0, 8)}</span>}
             </span>
           )}
           {job.status === "error" && (
-            <span className="status-text err">✗ {job.error}</span>
+            <span className="dz-status-txt err">✗ {job.error}</span>
           )}
         </div>
       )}
 
       <style>{`
-        .dropzone-wrap { display: flex; flex-direction: column; gap: 12px; }
-        .dropzone {
-          border: 2px dashed var(--border);
-          border-radius: var(--radius);
-          padding: 32px 24px;
+        .dz-wrap { display: flex; flex-direction: column; gap: 10px; }
+        .dz-pick-btn {
           display: flex;
-          flex-direction: column;
           align-items: center;
-          gap: 8px;
+          gap: 10px;
+          width: 100%;
+          padding: 12px 14px;
+          background: var(--surface2);
+          border: 1px solid var(--border);
+          border-radius: var(--radius);
           cursor: pointer;
-          transition: border-color .15s, background .15s;
-          user-select: none;
+          font-size: 13px;
+          color: var(--text);
+          transition: border-color .15s;
+          text-align: left;
+          overflow: hidden;
+          white-space: nowrap;
+          text-overflow: ellipsis;
         }
-        .dropzone:hover, .dropzone.drag-over {
-          border-color: var(--accent);
-          background: rgba(255,95,0,.05);
-        }
-        .dropzone-icon { font-size: 28px; }
-        .dropzone-label { color: var(--text-2); font-size: 13px; }
-        .dir-row { display: flex; gap: 8px; }
-        .dir-input { flex: 1; }
-        .btn-primary {
-          padding: 6px 16px;
+        .dz-pick-btn:hover:not(:disabled) { border-color: var(--accent); }
+        .dz-pick-btn:disabled { opacity: .5; cursor: not-allowed; }
+        .dz-pick-icon { font-size: 16px; flex-shrink: 0; }
+        .dz-row { display: flex; gap: 8px; }
+        .dz-input { flex: 1; }
+        .dz-analyze-btn {
+          padding: 6px 14px;
           background: var(--accent);
           color: #fff;
           border-radius: var(--radius);
           font-weight: 600;
-          transition: opacity .15s;
         }
-        .btn-primary:disabled { opacity: .4; cursor: not-allowed; }
-        .btn-primary:not(:disabled):hover { opacity: .85; }
-        .analysis-status { display: flex; flex-direction: column; gap: 6px; }
-        .progress-bar-wrap {
-          height: 3px;
-          background: var(--border);
-          border-radius: 2px;
-          overflow: hidden;
+        .dz-analyze-btn:disabled { opacity: .4; cursor: not-allowed; }
+        .dz-status { display: flex; flex-direction: column; gap: 5px; }
+        .dz-progress-wrap {
+          height: 2px; background: var(--border); border-radius: 1px; overflow: hidden;
         }
-        .progress-bar {
-          height: 100%;
-          background: var(--accent);
-          border-radius: 2px;
-          transition: width .3s;
+        .dz-progress-fill {
+          height: 100%; background: var(--accent); border-radius: 1px; transition: width .3s;
         }
-        .status-text { font-size: 12px; color: var(--text-2); }
-        .status-text.ok { color: var(--green); }
-        .status-text.err { color: #ff4d4d; }
-        .job-id { color: var(--text-3); font-family: var(--mono); }
+        .dz-status-txt { font-size: 11px; color: var(--text-2); }
+        .dz-status-txt.ok  { color: var(--green); }
+        .dz-status-txt.err { color: #ff4d4d; }
+        .dz-jid { color: var(--text-3); font-family: var(--mono); }
       `}</style>
     </div>
   );
