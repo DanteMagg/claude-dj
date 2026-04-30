@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { WS_BASE } from "../api";
 
 export type PlayerState = "idle" | "buffering" | "playing" | "paused" | "error";
 
@@ -26,15 +27,16 @@ export function usePlayer(sessionId: string | null): [PlayerStatus, PlayerContro
     error: null,
   });
 
-  const wsRef          = useRef<WebSocket | null>(null);
-  const ctxRef         = useRef<AudioContext | null>(null);
-  const gainRef        = useRef<GainNode | null>(null);
-  const nextTimeRef    = useRef<number>(0);
-  const chunkQueueRef  = useRef<AudioBuffer[]>([]);
-  const currentBarRef  = useRef<number>(0);
-  const chunkBarsRef   = useRef<number>(8);     // matches server CHUNK_BARS
-  const playingRef     = useRef<boolean>(false);
-  const tickRef        = useRef<ReturnType<typeof setInterval> | null>(null);
+  const wsRef           = useRef<WebSocket | null>(null);
+  const ctxRef          = useRef<AudioContext | null>(null);
+  const gainRef         = useRef<GainNode | null>(null);
+  const nextTimeRef     = useRef<number>(0);
+  const chunkQueueRef   = useRef<AudioBuffer[]>([]);
+  const currentBarRef   = useRef<number>(0);
+  const chunkBarsRef    = useRef<number>(8);     // matches server CHUNK_BARS
+  const playingRef      = useRef<boolean>(false);
+  const tickRef         = useRef<ReturnType<typeof setInterval> | null>(null);
+  const activeSourcesRef = useRef<AudioBufferSourceNode[]>([]);
 
   const getCtx = useCallback((): AudioContext => {
     if (!ctxRef.current || ctxRef.current.state === "closed") {
@@ -88,6 +90,11 @@ export function usePlayer(sessionId: string | null): [PlayerStatus, PlayerContro
       src.start(startAt);
       nextTimeRef.current = startAt + buf.duration;
 
+      activeSourcesRef.current.push(src);
+      src.onended = () => {
+        activeSourcesRef.current = activeSourcesRef.current.filter((s) => s !== src);
+      };
+
       currentBarRef.current += chunkBarsRef.current;
     }
 
@@ -101,7 +108,7 @@ export function usePlayer(sessionId: string | null): [PlayerStatus, PlayerContro
 
   const connect = useCallback((id: string) => {
     wsRef.current?.close();
-    const ws = new WebSocket(`ws://${window.location.host}/ws/stream/${id}`);
+    const ws = new WebSocket(`${WS_BASE}/ws/stream/${id}`);
     ws.binaryType = "arraybuffer";
     wsRef.current = ws;
 
@@ -136,6 +143,7 @@ export function usePlayer(sessionId: string | null): [PlayerStatus, PlayerContro
     if (!sessionId) return;
     connect(sessionId);
     return () => {
+      playingRef.current = false;
       wsRef.current?.close();
       clearInterval(tickRef.current!);
     };
@@ -159,6 +167,10 @@ export function usePlayer(sessionId: string | null): [PlayerStatus, PlayerContro
 
   const seek = useCallback(
     (bar: number) => {
+      for (const src of activeSourcesRef.current) {
+        try { src.stop(); } catch { /* already ended */ }
+      }
+      activeSourcesRef.current = [];
       chunkQueueRef.current  = [];
       currentBarRef.current  = bar;
       nextTimeRef.current    = ctxRef.current ? ctxRef.current.currentTime + 0.05 : 0;

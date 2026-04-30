@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { apiFetch } from "./api";
 import DropZone from "./components/DropZone";
 import MixPlayer from "./components/MixPlayer";
 import type { Session } from "./types";
@@ -10,12 +11,12 @@ const MODELS = [
 ];
 
 export default function App() {
-  const [jobId,       setJobId]       = useState<string | null>(null);
-  const [session,     setSession]     = useState<Session | null>(null);
-  const [planning,    setPlanning]    = useState(false);
-  const [model,       setModel]       = useState(MODELS[0]!);
-  const [minMinutes,  setMinMinutes]  = useState<number | "">("");
-  const [planError,   setPlanError]   = useState<string | null>(null);
+  const [jobId,      setJobId]      = useState<string | null>(null);
+  const [session,    setSession]    = useState<Session | null>(null);
+  const [planning,   setPlanning]   = useState(false);
+  const [model,      setModel]      = useState(MODELS[0]!);
+  const [minMinutes, setMinMinutes] = useState<number | "">("");
+  const [planError,  setPlanError]  = useState<string | null>(null);
 
   const handlePlan = async () => {
     if (!jobId) return;
@@ -23,21 +24,18 @@ export default function App() {
     setPlanError(null);
     setSession(null);
     try {
-      const res = await fetch("/api/plan", {
-        method: "POST",
+      const res = await apiFetch("/api/plan", {
+        method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        body:    JSON.stringify({
           job_id:      jobId,
           model,
           min_minutes: minMinutes === "" ? null : minMinutes,
         }),
       });
-      const data = await res.json() as Session & { error?: string };
-      if (data.error) {
-        setPlanError(data.error);
-      } else {
-        setSession(data);
-      }
+      const data = (await res.json()) as Session & { error?: string };
+      if (data.error) setPlanError(data.error);
+      else setSession(data);
     } catch (e) {
       setPlanError(String(e));
     } finally {
@@ -74,7 +72,9 @@ export default function App() {
               min={1}
               placeholder="optional"
               value={minMinutes}
-              onChange={(e) => setMinMinutes(e.target.value === "" ? "" : Number(e.target.value))}
+              onChange={(e) =>
+                setMinMinutes(e.target.value === "" ? "" : Number(e.target.value))
+              }
             />
           </div>
           <button
@@ -94,102 +94,63 @@ export default function App() {
           <MixPlayer session={session} />
         ) : (
           <div className="empty-state">
-            <div className="empty-icon">◈</div>
+            <span className="empty-icon">◈</span>
             <p className="empty-title">No mix loaded</p>
             <p className="empty-sub">
               {jobId
-                ? "Click Generate Mix to ask Claude to direct the set."
-                : "Analyze a folder of tracks to get started."}
+                ? "Click Generate Mix to ask Claude to plan the set."
+                : "Choose a folder of tracks to get started."}
             </p>
           </div>
         )}
       </main>
 
       <style>{`
-        .app {
-          display: flex;
-          height: 100vh;
-          overflow: hidden;
-        }
+        .app { display: flex; height: 100vh; overflow: hidden; }
         .sidebar {
-          width: 280px;
-          flex-shrink: 0;
-          background: var(--surface);
-          border-right: 1px solid var(--border);
-          display: flex;
-          flex-direction: column;
-          gap: 0;
-          overflow-y: auto;
+          width: 280px; flex-shrink: 0;
+          background: var(--surface); border-right: 1px solid var(--border);
+          display: flex; flex-direction: column; overflow-y: auto;
         }
         .logo {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          padding: 20px 18px 16px;
-          border-bottom: 1px solid var(--border);
+          display: flex; align-items: center; gap: 10px;
+          padding: 20px 18px 16px; border-bottom: 1px solid var(--border);
         }
-        .logo-icon {
-          font-size: 22px;
-          color: var(--accent);
-        }
-        .logo-text {
-          font-size: 16px;
-          font-weight: 700;
-          letter-spacing: .02em;
-        }
+        .logo-icon { font-size: 22px; color: var(--accent); }
+        .logo-text { font-size: 16px; font-weight: 700; letter-spacing: .02em; }
         .section {
-          padding: 16px 18px;
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-          border-bottom: 1px solid var(--border);
+          padding: 16px 18px; display: flex; flex-direction: column;
+          gap: 10px; border-bottom: 1px solid var(--border);
         }
         .section-title {
-          font-size: 11px;
-          font-weight: 600;
-          text-transform: uppercase;
-          letter-spacing: .09em;
-          color: var(--text-2);
+          font-size: 11px; font-weight: 600; text-transform: uppercase;
+          letter-spacing: .09em; color: var(--text-2);
         }
-        .field {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-        }
+        .field { display: flex; flex-direction: column; gap: 4px; }
         .field-label { font-size: 12px; color: var(--text-2); }
         .field select, .field input { width: 100%; }
         .btn-generate {
-          padding: 9px 0;
-          background: var(--accent);
-          color: #fff;
-          font-weight: 600;
-          border-radius: var(--radius);
-          font-size: 14px;
-          transition: opacity .15s;
-          width: 100%;
+          padding: 9px 0; background: var(--accent); color: #fff;
+          font-weight: 600; border-radius: var(--radius); font-size: 14px;
+          transition: opacity .15s; width: 100%;
         }
         .btn-generate:disabled { opacity: .4; cursor: not-allowed; }
         .btn-generate:not(:disabled):hover { opacity: .85; }
         .plan-error { font-size: 12px; color: #ff4d4d; }
         .main {
-          flex: 1;
-          overflow: hidden;
-          display: flex;
-          flex-direction: column;
-          padding: 20px;
+          flex: 1; overflow: hidden; display: flex;
+          flex-direction: column; padding: 20px;
         }
         .empty-state {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          gap: 10px;
-          opacity: .4;
+          flex: 1; display: flex; flex-direction: column;
+          align-items: center; justify-content: center; gap: 10px; opacity: .4;
         }
         .empty-icon { font-size: 48px; color: var(--accent); }
         .empty-title { font-size: 18px; font-weight: 600; }
-        .empty-sub { font-size: 13px; color: var(--text-2); text-align: center; max-width: 300px; }
+        .empty-sub {
+          font-size: 13px; color: var(--text-2);
+          text-align: center; max-width: 300px;
+        }
       `}</style>
     </div>
   );

@@ -1,4 +1,5 @@
 import type { MixAction, MixScript } from "../types";
+import { barToMmss } from "../utils";
 
 interface Props {
   script: MixScript;
@@ -6,23 +7,17 @@ interface Props {
   currentBar: number;
 }
 
-function barToMmss(bar: number, bpm: number): string {
-  const ms = Math.round((bar * 4 * 60_000) / bpm);
-  const s = Math.floor(ms / 1000);
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-}
-
 function actionBar(a: MixAction): number {
   return a.at_bar ?? a.start_bar ?? a.bar ?? 0;
 }
 
 const TYPE_LABELS: Record<string, string> = {
-  play:      "▶",
-  fade_in:   "↑ fade in",
-  fade_out:  "↓ fade out",
-  bass_swap: "⇄ bass",
-  loop:      "↻ loop",
-  eq:        "≋ eq",
+  play:      "play",
+  fade_in:   "fade in",
+  fade_out:  "fade out",
+  bass_swap: "bass swap",
+  loop:      "loop",
+  eq:        "eq",
 };
 
 export default function TransitionLog({ script, refBpm, currentBar }: Props) {

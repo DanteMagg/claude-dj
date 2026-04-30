@@ -3,15 +3,17 @@ import TransitionLog from "./TransitionLog";
 import { usePlayer } from "../hooks/usePlayer";
 import type { MixScript, Session } from "../types";
 
-interface Props {
-  session: Session;
-}
-
 function barToMmss(bar: number, bpm: number): string {
   const ms = Math.round((bar * 4 * 60_000) / bpm);
   const s  = Math.floor(ms / 1000);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
+
+interface Props {
+  session: Session;
+}
+
+const BUFFER_DISPLAY_MAX_BARS = 32;
 
 function estimateTotalBars(script: MixScript): number {
   let max = 0;
@@ -46,7 +48,7 @@ export default function MixPlayer({ session }: Props) {
     }
   }, [playerStatus.currentBar]);
 
-  const bufferPct = Math.min(100, (playerStatus.bufferDepthBars / 32) * 100);
+  const bufferPct = Math.min(100, (playerStatus.bufferDepthBars / BUFFER_DISPLAY_MAX_BARS) * 100);
 
   return (
     <div className="player-root">
@@ -59,7 +61,7 @@ export default function MixPlayer({ session }: Props) {
           onClick={() => setShowReasoning((v) => !v)}
           title="Claude's reasoning"
         >
-          {showReasoning ? "▲ reasoning" : "▼ reasoning"}
+          {showReasoning ? "▲" : "▼"} reasoning
         </button>
       </div>
 
@@ -102,7 +104,7 @@ export default function MixPlayer({ session }: Props) {
         <button
           className={`btn-transport ${playerStatus.state === "playing" ? "active" : ""}`}
           onClick={playerStatus.state === "playing" ? controls.pause : controls.play}
-          disabled={playerStatus.state === "buffering" || playerStatus.state === "idle"}
+          disabled={playerStatus.state === "buffering" || playerStatus.state === "idle" || playerStatus.state === "error"}
         >
           {playerStatus.state === "playing" ? "⏸" : "▶"}
         </button>
@@ -162,6 +164,9 @@ export default function MixPlayer({ session }: Props) {
           padding: 3px 8px;
           border: 1px solid var(--border);
           border-radius: 4px;
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
         }
         .btn-ghost:hover { border-color: var(--accent); color: var(--text); }
         .reasoning-box {
@@ -228,6 +233,7 @@ export default function MixPlayer({ session }: Props) {
         .btn-transport.active { border-color: var(--accent); background: rgba(255,95,0,.12); }
         .btn-transport:disabled { opacity: .35; cursor: not-allowed; }
         .btn-transport:not(:disabled):hover { border-color: var(--accent); }
+        .btn-transport:not(:disabled):active { transform: scale(0.94); }
         .status-block { display: flex; flex-direction: column; gap: 2px; flex: 1; }
         .state-badge {
           font-size: 11px;
