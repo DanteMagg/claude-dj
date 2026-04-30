@@ -278,6 +278,7 @@ def analyze_track(audio_path: str, track_id: str) -> TrackAnalysis:
     if analysis_cache.exists():
         with open(analysis_cache) as f:
             d = json.load(f)
+        d["id"] = track_id  # always use the caller-assigned id, not the cached one
         return _dict_to_analysis(d)
 
     print(f"  [analyze] loading {Path(audio_path).name}")
@@ -401,6 +402,9 @@ def _dict_to_analysis(d: dict) -> TrackAnalysis:
         sections.append(Section(**s))
     d["sections"] = sections
     d["cue_points"] = [CuePoint(**c) for c in d["cue_points"]]
+    # migrate renamed field from old cache files
+    if "loudness_lufs" in d:
+        d["loudness_dbfs"] = d.pop("loudness_lufs")
     return TrackAnalysis(**d)
 
 
