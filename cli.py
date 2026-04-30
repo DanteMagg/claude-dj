@@ -36,7 +36,9 @@ def cli():
 @click.option("--model", default="claude-sonnet-4-6", show_default=True, help="Claude model to use")
 @click.option("--mp3", is_flag=True, help="Export as MP3 instead of WAV")
 @click.option("--no-stems", is_flag=True, help="Skip Demucs (faster, disables stem fades)")
-def mix(tracks_dir, output, analyze_only, script, model, mp3, no_stems):
+@click.option("--min-minutes", default=None, type=int, help="Target minimum set length in minutes (hint to Claude)")
+@click.option("--dry-run", is_flag=True, help="Print transition table without rendering audio")
+def mix(tracks_dir, output, analyze_only, script, model, mp3, no_stems, min_minutes, dry_run):
     """Analyze TRACKS_DIR, ask Claude to direct the mix, render audio."""
     sys.path.insert(0, str(Path(__file__).parent))
 
@@ -72,7 +74,7 @@ def mix(tracks_dir, output, analyze_only, script, model, mp3, no_stems):
 
         click.echo("\nAsking Claude to direct the mix…")
         from mix_director import direct_mix
-        mix_script = direct_mix(analyses, model)
+        mix_script = direct_mix(analyses, model, min_minutes=min_minutes)
         click.echo(f"\nReasoning: {mix_script.reasoning[:300]}{'…' if len(mix_script.reasoning) > 300 else ''}")
 
         # save script
@@ -85,6 +87,12 @@ def mix(tracks_dir, output, analyze_only, script, model, mp3, no_stems):
     # normalize (safety layer: clamp DSP values, inject bass_swap if missing)
     from normalizer import normalize
     mix_script = normalize(mix_script)
+
+    # dry-run: print transition table and exit
+    if dry_run:
+        from executor import explain_script
+        explain_script(mix_script)
+        return
 
     # render
     if output is None:

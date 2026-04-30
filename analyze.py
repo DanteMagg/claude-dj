@@ -254,9 +254,12 @@ def _energy_cue_points(energy_curve: list[int], n_bars: int) -> list[CuePoint]:
             mix_in = (i // phrase) * phrase
             break
 
-    # mix_out: scan backward; last 4-bar window that is >= mean marks the body end
+    # mix_out: scan backward from the end, but only in the second half of the track.
+    # This forces mix_out toward the outro rather than mid-track breakdowns, producing
+    # longer, more complete plays per track in the mix.
+    half = n // 2
     mix_out = max(0, ((n - 1) // phrase) * phrase)
-    for i in range(n - 4, 0, -1):
+    for i in range(n - 4, max(half, 0), -1):
         if all(e >= mean_e for e in energy_curve[i:i + 4]):
             mix_out = min(n_bars - 1, ((i + 4 + phrase - 1) // phrase) * phrase)
             break

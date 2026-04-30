@@ -101,6 +101,7 @@ def render(script: MixScript, output_path: str, export_mp3: bool = False) -> str
     stem_layers: dict[tuple[str, str], AudioSegment] = {}
     for t in script.tracks:
         stem_dir = _stem_dir_for_track(t.id, script)
+        found_any = False
         for stem_name in ("drums", "bass", "vocals", "other"):
             path = stem_dir / f"{stem_name}.wav"
             if path.exists():
@@ -109,15 +110,37 @@ def render(script: MixScript, output_path: str, export_mp3: bool = False) -> str
                 if seg.frame_rate != target_rate:
                     seg = seg.set_frame_rate(target_rate)
                 stem_layers[(t.id, stem_name)] = seg
+                found_any = True
+        if not found_any:
+            needs_stems = any(
+                a.track == t.id and a.type == "fade_in" and a.stems
+                for a in script.actions
+            )
+            if needs_stems:
+                print(
+                    f"[executor] WARNING: {t.id} has stem fade_in actions but no stems cached "
+                    f"at {stem_dir} — stem volumes will be ignored, full mix used instead"
+                )
 
-    # Total mix length
-    max_bar = 0
+    # Total mix length — scan action timing fields, account for actual track extents
+    # from scheduled play positions, then take the max against all loaded audio lengths
+    # so a long final track never gets silently truncated.
+    max_ms = 0
     for action in script.actions:
         for field in ("at_bar", "start_bar", "bar"):
             val = getattr(action, field, None)
             if val is not None:
-                max_bar = max(max_bar, val + (action.duration_bars or 0))
-    total_ms = bars_to_ms(max_bar + 32, ref_bpm)
+                max_ms = max(max_ms, bars_to_ms(val + (action.duration_bars or 0), ref_bpm))
+        if action.type in ("play", "fade_in"):
+            at_ms_   = bars_to_ms(action.at_bar or action.start_bar or 0, ref_bpm)
+            from_ms_ = bars_to_ms(action.from_bar or 0, ref_bpm)
+            track_audio = loaded.get(action.track)
+            if track_audio is not None:
+                remaining = max(0, len(track_audio) - from_ms_)
+                max_ms = max(max_ms, at_ms_ + remaining)
+    # Safety net: never shorter than the longest loaded track
+    max_ms = max(max_ms, max(len(seg) for seg in loaded.values()))
+    total_ms = max_ms + bars_to_ms(32, ref_bpm)
 
     # Per-track layers — each track gets its own AudioSegment, summed at the end.
     # This means fade_out on T1 never touches T2, and EQ on one track can't bleed into another.
@@ -131,18 +154,25 @@ def render(script: MixScript, output_path: str, export_mp3: bool = False) -> str
         valid = [b for b in candidates if b is not None]
         return min(valid) if valid else 0
 
+    # Track source position for each track so bass_swap and stem fades use the right offset.
+    # Keyed by track id: {"at_ms": int, "from_ms": int}
+    active_state: dict[str, dict[str, int]] = {}
+
     for action in sorted(script.actions, key=sort_key):
         tid = action.track
 
         if action.type == "play":
-            src = loaded[tid]
             from_ms = bars_to_ms(action.from_bar or 0, ref_bpm)
             at_ms   = bars_to_ms(action.at_bar or 0,   ref_bpm)
+            active_state[tid] = {"at_ms": at_ms, "from_ms": from_ms}
+            src = loaded[tid]
             layers[tid] = layers[tid].overlay(src[from_ms:], position=at_ms)
 
         elif action.type == "fade_in":
-            fade_ms = bars_to_ms(action.duration_bars or 8, ref_bpm)
-            at_ms   = bars_to_ms(action.start_bar or 0, ref_bpm)
+            fade_ms  = bars_to_ms(action.duration_bars or 8, ref_bpm)
+            at_ms    = bars_to_ms(action.start_bar or 0, ref_bpm)
+            from_ms  = bars_to_ms(action.from_bar or 0, ref_bpm)
+            active_state[tid] = {"at_ms": at_ms, "from_ms": from_ms}
 
             if action.stems and stem_layers:
                 mixed: Optional[AudioSegment] = None
@@ -150,7 +180,7 @@ def render(script: MixScript, output_path: str, export_mp3: bool = False) -> str
                     sl = stem_layers.get((tid, stem_name))
                     if sl is None:
                         continue
-                    seg = sl[:fade_ms]
+                    seg = sl[from_ms:from_ms + fade_ms]
                     if vol > 0:
                         seg = seg + float(20 * np.log10(max(vol, 0.001)))
                     else:
@@ -160,7 +190,7 @@ def render(script: MixScript, output_path: str, export_mp3: bool = False) -> str
                     layers[tid] = layers[tid].overlay(mixed.fade_in(fade_ms), position=at_ms)
             else:
                 src = loaded[tid]
-                clip = src[:fade_ms].fade_in(fade_ms)
+                clip = src[from_ms:from_ms + fade_ms].fade_in(fade_ms)
                 layers[tid] = layers[tid].overlay(clip, position=at_ms)
 
         elif action.type == "fade_out":
@@ -177,12 +207,26 @@ def render(script: MixScript, output_path: str, export_mp3: bool = False) -> str
             )
 
         elif action.type == "bass_swap":
-            # Hard high-pass on the outgoing track from this bar onward — kills bass bleed.
             swap_ms = bars_to_ms(action.at_bar or 0, ref_bpm)
+
+            # Cut outgoing bass: high-pass the outgoing track's tail from swap_ms onward.
             layer = layers[tid]
             if swap_ms < len(layer):
                 tail = high_pass_filter(layer[swap_ms:], 200)
                 layers[tid] = layer[:swap_ms] + tail
+
+            # Restore incoming bass: overlay the bass stem from the correct source position.
+            if action.incoming_track:
+                in_tid = action.incoming_track
+                bass_stem = stem_layers.get((in_tid, "bass"))
+                if bass_stem is not None and in_tid in active_state:
+                    state = active_state[in_tid]
+                    # How far into the source is the incoming track at swap_ms?
+                    stem_offset = state["from_ms"] + (swap_ms - state["at_ms"])
+                    stem_offset = max(0, stem_offset)
+                    bass_tail = bass_stem[stem_offset:]
+                    if len(bass_tail) > 0:
+                        layers[in_tid] = layers[in_tid].overlay(bass_tail, position=swap_ms)
 
         elif action.type == "eq":
             # Apply EQ over a 4-bar window centered on action.bar for a gradual effect.
@@ -215,3 +259,85 @@ def render(script: MixScript, output_path: str, export_mp3: bool = False) -> str
         canvas.export(output_path, format="wav")
 
     return output_path
+
+
+def explain_script(script: MixScript) -> None:
+    """Print a human-readable transition table — for tuning without a full render."""
+    ref_bpm = float(np.median([t.bpm for t in script.tracks]))
+    W = 64
+
+    def bar_to_mmss(bar: int) -> str:
+        ms = bars_to_ms(bar, ref_bpm)
+        s = ms // 1000
+        return f"{s // 60}:{s % 60:02d}"
+
+    print("\n" + "─" * W)
+    print(f"  {script.mix_title}")
+    print(f"  ref BPM: {ref_bpm:.1f}")
+    print("─" * W)
+
+    plays      = {a.track: a for a in script.actions if a.type == "play"}
+    fade_ins   = {a.track: a for a in script.actions if a.type == "fade_in"}
+    fade_outs  = {a.track: a for a in script.actions if a.type == "fade_out"}
+    bass_swaps = [a for a in script.actions if a.type == "bass_swap"]
+    eqs        = [a for a in script.actions if a.type == "eq"]
+
+    for t in script.tracks:
+        pl = plays.get(t.id)
+        fi = fade_ins.get(t.id)
+        fo = fade_outs.get(t.id)
+
+        start_bar = pl.at_bar if pl else (fi.start_bar if fi else 0)
+        from_bar  = pl.from_bar if pl else (fi.from_bar if fi else 0)
+        out_bar   = fo.start_bar if fo else None
+        out_dur   = fo.duration_bars if fo else None
+
+        start_ts = bar_to_mmss(start_bar or 0)
+        out_str  = f"bar {out_bar} ({out_dur}b → {bar_to_mmss((out_bar or 0) + (out_dur or 0))})" if out_bar is not None else "—"
+
+        stem_str = ""
+        if fi and fi.stems:
+            parts = [f"{k}:{v:.1f}" for k, v in fi.stems.items() if v != 1.0]
+            stem_str = f"  stems={{{', '.join(parts)}}}" if parts else ""
+        fi_str = f"fade_in bar {fi.start_bar} dur={fi.duration_bars}b{stem_str}" if fi else "direct play"
+
+        print(f"\n  {t.id}  BPM={t.bpm}  start@bar {start_bar} ({start_ts})"
+              f"  from_bar={from_bar}")
+        print(f"       in: {fi_str}")
+        print(f"       out: fade_out@{out_str}")
+
+    if bass_swaps or eqs:
+        print("\n  Events:")
+        for bs in sorted(bass_swaps, key=lambda a: a.at_bar or 0):
+            swap_ts = bar_to_mmss(bs.at_bar or 0)
+            inc = f" → restore {bs.incoming_track}" if bs.incoming_track else ""
+            print(f"    bass_swap  bar {bs.at_bar} ({swap_ts})  cut {bs.track}{inc}")
+        for eq in sorted(eqs, key=lambda a: a.bar or 0):
+            print(f"    eq         bar {eq.bar}  {eq.track}  low={eq.low} mid={eq.mid} hi={eq.high}")
+
+    # Overlap windows
+    fi_list = sorted(fade_ins.values(), key=lambda a: a.start_bar or 0)
+    if fi_list:
+        print("\n  Transitions:")
+        for fi in fi_list:
+            fo = fade_outs.get(next(
+                (t.id for t in script.tracks if t.id != fi.track), fi.track
+            ))
+            fi_start = fi.start_bar or 0
+            fi_end   = fi_start + (fi.duration_bars or 0)
+            if fo:
+                fo_start = fo.start_bar or 0
+                fo_end   = fo_start + (fo.duration_bars or 0)
+                overlap_start = min(fi_start, fo_start)
+                overlap_end   = max(fi_end, fo_end)
+                overlap_bars  = overlap_end - overlap_start
+                print(f"    {fo.track}→{fi.track}  overlap bars {overlap_start}–{overlap_end}"
+                      f"  ({overlap_bars} bars, {bar_to_mmss(overlap_start)}–{bar_to_mmss(overlap_end)})")
+
+    last_bar = max(
+        (a.at_bar or a.start_bar or a.bar or 0) + (a.duration_bars or 0)
+        for a in script.actions
+    )
+    est_s = bars_to_ms(last_bar, ref_bpm) // 1000
+    print(f"\n  Est. length: {est_s // 60}m {est_s % 60:02d}s  (last scheduled bar: {last_bar})")
+    print("─" * W + "\n")

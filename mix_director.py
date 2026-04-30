@@ -21,15 +21,32 @@ You are acting as the Claude DJ brain. You will receive structured audio analysi
 
 Follow the operational checklist in section 6 of the skill document for every transition. Apply the bass swap protocol from section 3.1 via the `bass_swap` action. Use the stem layering order from section 3.2 via `fade_in` stems. Choose crossfade length per the genre table in section 3.3.
 
+### Transition length — critical for a professional feel
+
+- **Default crossfade: 16 bars.** Use 32 bars for peak-hour or high-energy tracks where a slow blend sounds better. Use 24 bars when energy levels are unequal.
+- **Never shorter than 8 bars** except for deliberate cut transitions (and those should be rare).
+- The safety layer will snap all `duration_bars` to the nearest phrase multiple (8/16/24/32…) and enforce a minimum of 16 bars — so think in 8-bar chunks and lean toward 16–32.
+- Place `fade_in` to start at or just before the incoming track's `mix_in` cue point.
+- Place `fade_out` to end at or just after the outgoing track's `mix_out` cue point.
+- This naturally produces 16–32 bar overlap windows.
+
+### Set structure — build an energy arc
+
+- **Use most of each track's body.** Start playing from near the track's `mix_in` cue point; let it run until near `mix_out`. Avoid exiting a track at its first breakdown.
+- **Build an energy arc across the full set:** warm-up (lower energy, introductory tracks) → peak (highest energy, densest drops) → cooldown (returning to more relaxed energy). Mention the arc shape in your reasoning.
+- **Use every track at least once.** If you have 3+ tracks, spend meaningful time on each.
+- A 4-track set should typically produce 20–40 minutes of continuous audio. A 2-track set should produce 8–15 minutes.
+
 ### Executor behavior (read before designing actions)
 
 The renderer is deliberately conservative — your creative contribution is *when* and *between which sections* transitions happen, not exotic DSP values.
 
 - `play` / `fade_in` / `fade_out` / `eq` operate on **per-track layers** that are summed at the end. A `fade_out` on T1 cannot silence T2. An `eq` on T1 cannot color T2.
-- `bass_swap` is the preferred bass hand-off primitive. Emit it once per transition at a phrase boundary inside the overlap window. It applies a hard 200 Hz high-pass to the **outgoing** track's layer from that bar onward.
+- **Every `fade_in` must be followed by a `play` action** for the same track at `start_bar + duration_bars` with `from_bar = fade_in.from_bar + fade_in.duration_bars`. Without it, the track goes silent after the stem intro.
+- `bass_swap` is the preferred bass hand-off primitive. Emit it once per transition at a phrase boundary inside the overlap window. It applies a hard 200 Hz high-pass to the **outgoing** track's layer from that bar onward, and restores the incoming track's bass.
 - `eq` is for **gentle tilt only** (all values clamped to 0.0–1.0; mid maps to ±6 dB max). Use `low=0.0` only when you need a complete bass kill; prefer `bass_swap` for that instead.
-- Stem volumes in `fade_in` control relative levels during the crossfade window. `bass: 0.0` holds the incoming track's bass until the `play` action.
-- A safety layer clamps all `duration_bars` to [4, 64] and will inject a `bass_swap` automatically if you omit one from a transition window — but it's better to place it intentionally.
+- Stem volumes in `fade_in` control relative levels during the crossfade window. `bass: 0.0` holds the incoming track's bass until the `bass_swap` fires.
+- A safety layer clamps all `duration_bars` to [4, 64] and will inject a `bass_swap` and an implied `play` automatically if you omit them — but it's better to place them intentionally.
 
 ### Output schema
 
@@ -38,14 +55,15 @@ Output ONLY valid JSON. No prose outside the JSON. Put all reasoning in the "rea
 ```json
 {
   "mix_title": "string",
-  "reasoning": "string — cite checklist items and skill rules for every decision",
+  "reasoning": "string — cite checklist items, skill rules, energy arc, and cue point choices for every decision",
   "tracks": [
     {"id": "T1", "path": "string", "bpm": float, "first_downbeat_s": float}
   ],
   "actions": [
     {"type": "play",      "track": "T1", "at_bar": int, "from_bar": int},
-    {"type": "fade_in",   "track": "T2", "start_bar": int, "duration_bars": int,
+    {"type": "fade_in",   "track": "T2", "start_bar": int, "duration_bars": int, "from_bar": int,
      "stems": {"drums": float, "bass": float, "vocals": float, "other": float}},
+    {"type": "play",      "track": "T2", "at_bar": int, "from_bar": int},
     {"type": "fade_out",  "track": "T1", "start_bar": int, "duration_bars": int},
     {"type": "bass_swap", "track": "T1", "at_bar": int},
     {"type": "eq",        "track": "T1", "bar": int, "low": float, "mid": float, "high": float}
@@ -58,11 +76,20 @@ All timing is in bars. `stems` values are 0.0–1.0 (volume scalar). `eq` values
 
 
 def _load_system_prompt() -> str:
-    skill = _SKILL_PATH.read_text() if _SKILL_PATH.exists() else ""
+    if _SKILL_PATH.exists():
+        skill = _SKILL_PATH.read_text()
+    else:
+        import sys
+        print(
+            f"[mix_director] WARNING: {_SKILL_PATH} not found — "
+            "Claude will receive no DJ skill context. Commit dj_skill.md to fix this.",
+            file=sys.stderr,
+        )
+        skill = ""
     return skill + _TASK_PROMPT
 
 
-def build_prompt(analyses: list[TrackAnalysis]) -> str:
+def build_prompt(analyses: list[TrackAnalysis], min_minutes: Optional[int] = None) -> str:
     track_dicts = []
     for a in analyses:
         d = a.to_dict()
@@ -71,16 +98,25 @@ def build_prompt(analyses: list[TrackAnalysis]) -> str:
         d["file"] = d["file"].split("/")[-1]
         track_dicts.append(d)
 
+    duration_instruction = ""
+    if min_minutes:
+        duration_instruction = (
+            f"\n\nTARGET SET LENGTH: at least {min_minutes} minutes of continuous audio. "
+            "Use as much of each track's body as needed to hit this target. "
+            "If the tracks are long enough, extend overlap windows and let tracks play longer before transitioning."
+        )
+
     return (
-        f"Here are {len(analyses)} tracks to mix. Analyze the set and output a mix script.\n\n"
+        f"Here are {len(analyses)} tracks to mix. Analyze the set and output a mix script."
+        f"{duration_instruction}\n\n"
         f"TRACKS:\n{json.dumps(track_dicts, indent=2)}\n\n"
         "Output the mix script JSON now."
     )
 
 
-def direct_mix(analyses: list[TrackAnalysis], model: str) -> MixScript:
+def direct_mix(analyses: list[TrackAnalysis], model: str, min_minutes: Optional[int] = None) -> MixScript:
     client = anthropic.Anthropic()
-    prompt = build_prompt(analyses)
+    prompt = build_prompt(analyses, min_minutes)
 
     response = client.messages.create(
         model=model,

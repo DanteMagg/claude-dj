@@ -107,6 +107,8 @@ class MixAction:
     low: Optional[float] = None
     mid: Optional[float] = None
     high: Optional[float] = None
+    # bass_swap: outgoing=track, incoming gets bass restored at same bar
+    incoming_track: Optional[str] = None
 
 
 @dataclass
