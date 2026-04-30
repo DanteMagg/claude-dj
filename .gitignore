@@ -8,7 +8,8 @@ build/
 
 # Claude DJ runtime artifacts
 cache/
-outputs/
+outputs/*
+!outputs/.gitkeep
 
 # Audio files (large binaries)
 *.wav
