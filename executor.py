@@ -228,6 +228,45 @@ def render(script: MixScript, output_path: str, export_mp3: bool = False) -> str
                     if len(bass_tail) > 0:
                         layers[in_tid] = layers[in_tid].overlay(bass_tail, position=swap_ms)
 
+        elif action.type == "loop":
+            loop_bars     = action.loop_bars or 8
+            repeats       = action.loop_repeats or 1
+            loop_start_b  = action.start_bar or 0
+            loop_start_ms = bars_to_ms(loop_start_b, ref_bpm)
+
+            state = active_state.get(tid)
+            if state is None:
+                print(f"[executor] WARNING: loop on {tid} at bar {loop_start_b} — no active play, skipping")
+                continue
+
+            # Map loop_start in mix time → position in the (already-stretched) source
+            offset_in_src = state["from_ms"] + (loop_start_ms - state["at_ms"])
+            offset_in_src = max(0, offset_in_src)
+
+            phrase_ms = bars_to_ms(loop_bars, ref_bpm)
+            phrase = loaded[tid][offset_in_src:offset_in_src + phrase_ms]
+            if len(phrase) == 0:
+                print(f"[executor] WARNING: loop on {tid} — phrase slice is empty, skipping")
+                continue
+
+            loop_end_ms = loop_start_ms + phrase_ms * repeats
+
+            # Mute the original layer under the loop window (default on) so each repeat
+            # is a clean replacement, not an additive double.
+            if action.loop_mute_tail is not False:
+                layer = layers[tid]
+                mute_end = min(loop_end_ms, len(layer))
+                if loop_start_ms < mute_end:
+                    layers[tid] = (
+                        layer[:loop_start_ms]
+                        + AudioSegment.silent(duration=mute_end - loop_start_ms, frame_rate=target_rate)
+                        + layer[mute_end:]
+                    )
+
+            for i in range(repeats):
+                pos = loop_start_ms + i * phrase_ms
+                layers[tid] = layers[tid].overlay(phrase, position=pos)
+
         elif action.type == "eq":
             # Apply EQ over a 4-bar window centered on action.bar for a gradual effect.
             center_ms   = bars_to_ms(action.bar or 0, ref_bpm)
@@ -280,6 +319,7 @@ def explain_script(script: MixScript) -> None:
     fade_ins   = {a.track: a for a in script.actions if a.type == "fade_in"}
     fade_outs  = {a.track: a for a in script.actions if a.type == "fade_out"}
     bass_swaps = [a for a in script.actions if a.type == "bass_swap"]
+    loops      = [a for a in script.actions if a.type == "loop"]
     eqs        = [a for a in script.actions if a.type == "eq"]
 
     for t in script.tracks:
@@ -306,12 +346,18 @@ def explain_script(script: MixScript) -> None:
         print(f"       in: {fi_str}")
         print(f"       out: fade_out@{out_str}")
 
-    if bass_swaps or eqs:
+    if bass_swaps or loops or eqs:
         print("\n  Events:")
         for bs in sorted(bass_swaps, key=lambda a: a.at_bar or 0):
             swap_ts = bar_to_mmss(bs.at_bar or 0)
             inc = f" → restore {bs.incoming_track}" if bs.incoming_track else ""
             print(f"    bass_swap  bar {bs.at_bar} ({swap_ts})  cut {bs.track}{inc}")
+        for lp in sorted(loops, key=lambda a: a.start_bar or 0):
+            lp_ts  = bar_to_mmss(lp.start_bar or 0)
+            lp_end = (lp.start_bar or 0) + (lp.loop_bars or 8) * (lp.loop_repeats or 1)
+            mute   = "" if lp.loop_mute_tail is False else " mute_tail"
+            print(f"    loop       bar {lp.start_bar} ({lp_ts})  {lp.track}  "
+                  f"{lp.loop_bars}b × {lp.loop_repeats}  → end bar {lp_end}{mute}")
         for eq in sorted(eqs, key=lambda a: a.bar or 0):
             print(f"    eq         bar {eq.bar}  {eq.track}  low={eq.low} mid={eq.mid} hi={eq.high}")
 

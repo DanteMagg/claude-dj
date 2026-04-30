@@ -18,6 +18,7 @@ def normalize(script: MixScript) -> MixScript:
     actions = list(script.actions)
     actions = _clamp_durations(actions)
     actions = _clamp_eq(actions)
+    actions = _clamp_loops(actions)
     actions = _inject_play_for_orphaned_fade_in(actions)
     actions = _inject_bass_swap_if_missing(actions)
     return MixScript(
@@ -44,6 +45,21 @@ def _clamp_durations(actions: list[MixAction]) -> list[MixAction]:
                 clamped = _snap_duration_to_phrase(clamped)
             a = dataclasses.replace(a, duration_bars=clamped)
         result.append(a)
+    return result
+
+
+def _clamp_loops(actions: list[MixAction]) -> list[MixAction]:
+    """Snap loop_bars to phrase multiples; cap loop_repeats to [1, 4]."""
+    result = []
+    for a in actions:
+        if a.type != "loop":
+            result.append(a)
+            continue
+        lb = a.loop_bars or PHRASE
+        # Snap to nearest phrase multiple, minimum half-phrase (4 bars)
+        lb = max(PHRASE // 2, round(lb / PHRASE) * PHRASE)
+        reps = max(1, min(4, a.loop_repeats or 1))
+        result.append(dataclasses.replace(a, loop_bars=lb, loop_repeats=reps))
     return result
 
 

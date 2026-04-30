@@ -48,6 +48,17 @@ The renderer is deliberately conservative — your creative contribution is *whe
 - Stem volumes in `fade_in` control relative levels during the crossfade window. `bass: 0.0` holds the incoming track's bass until the `bass_swap` fires.
 - A safety layer clamps all `duration_bars` to [4, 64] and will inject a `bass_swap` and an implied `play` automatically if you omit them — but it's better to place them intentionally.
 
+### Loop actions — extending builds and outros
+
+Use `loop` to repeat a short phrase in place: holds energy at a peak, extends an outro, or builds tension before a drop. Rules:
+
+- `start_bar` must be a phrase boundary (multiple of 8).
+- `loop_bars`: 4 or 8 bars only. An 8-bar loop repeating twice = 16 bars of extension.
+- `loop_repeats`: 1–4. More than 3 gets fatiguing — use sparingly.
+- Place loops on high-energy or build sections, never mid-intro.
+- The executor mutes the original track under the loop window so there is no doubling — the loop is a clean phrase replacement, not a layer.
+- After the loop ends, continue with a `play` or `fade_out` as normal.
+
 ### Output schema
 
 Output ONLY valid JSON. No prose outside the JSON. Put all reasoning in the "reasoning" field.
@@ -61,6 +72,7 @@ Output ONLY valid JSON. No prose outside the JSON. Put all reasoning in the "rea
   ],
   "actions": [
     {"type": "play",      "track": "T1", "at_bar": int, "from_bar": int},
+    {"type": "loop",      "track": "T1", "start_bar": int, "loop_bars": 8, "loop_repeats": 2},
     {"type": "fade_in",   "track": "T2", "start_bar": int, "duration_bars": int, "from_bar": int,
      "stems": {"drums": float, "bass": float, "vocals": float, "other": float}},
     {"type": "play",      "track": "T2", "at_bar": int, "from_bar": int},
@@ -71,7 +83,7 @@ Output ONLY valid JSON. No prose outside the JSON. Put all reasoning in the "rea
 }
 ```
 
-All timing is in bars. `stems` values are 0.0–1.0 (volume scalar). `eq` values are 0.0–1.0 (0.0 = full kill, 1.0 = unity). `bass_swap` `at_bar` must be a phrase boundary (multiple of 8) within the transition overlap window.
+All timing is in bars. `stems` values are 0.0–1.0 (volume scalar). `eq` values are 0.0–1.0 (0.0 = full kill, 1.0 = unity). `bass_swap` `at_bar` must be a phrase boundary (multiple of 8) within the transition overlap window. `loop` `start_bar` must be a phrase boundary (multiple of 8).
 """
 
 
@@ -152,6 +164,10 @@ def _dict_to_mix_script(data: dict, analyses: list[TrackAnalysis]) -> MixScript:
             low=a.get("low"),
             mid=a.get("mid"),
             high=a.get("high"),
+            incoming_track=a.get("incoming_track"),
+            loop_bars=a.get("loop_bars"),
+            loop_repeats=a.get("loop_repeats"),
+            loop_mute_tail=a.get("loop_mute_tail"),
         )
         actions.append(action)
 
