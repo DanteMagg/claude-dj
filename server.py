@@ -48,6 +48,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/health")
+async def health():
+    return {"ok": True}
+
+
 # ── In-process state (single-user local tool) ──────────────────────────────────
 _analyze_jobs: dict[str, dict] = {}  # job_id → {status, progress, total, analyses, error}
 _sessions:     dict[str, dict] = {}  # session_id → {script, scheduler, ref_bpm, tracks}
