@@ -82,6 +82,10 @@ def mix(tracks_dir, output, analyze_only, script, model, mp3, no_stems):
             json.dump(dataclasses.asdict(mix_script), f, indent=2)
         click.echo(f"Mix script saved: {script_path}")
 
+    # normalize (safety layer: clamp DSP values, inject bass_swap if missing)
+    from normalizer import normalize
+    mix_script = normalize(mix_script)
+
     # render
     if output is None:
         ext = "mp3" if mp3 else "wav"

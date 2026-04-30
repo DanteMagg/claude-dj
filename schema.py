@@ -93,7 +93,7 @@ class MixTrackRef:
 
 @dataclass
 class MixAction:
-    type: str  # play | fade_in | fade_out | eq
+    type: str  # play | fade_in | fade_out | eq | bass_swap
     track: str
     # play
     at_bar: Optional[int] = None
