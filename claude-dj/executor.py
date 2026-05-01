@@ -640,6 +640,8 @@ def render(script: MixScript, output_path: str, export_mp3: bool = False) -> str
     # Track source position for each track so bass_swap and stem fades use the right offset.
     # Keyed by track id: {"at_ms": int, "from_ms": int}
     active_state: dict[str, dict[str, int]] = {}
+    # Track end-time of any active fade_in so the subsequent play can be gated past it.
+    fade_in_end: dict[str, int] = {}
 
     for action in sorted(script.actions, key=sort_key):
         tid = action.track
@@ -647,6 +649,15 @@ def render(script: MixScript, output_path: str, export_mp3: bool = False) -> str
         if action.type == "play":
             from_ms = bars_to_ms(action.from_bar or 0, ref_bpm)
             at_ms   = bars_to_ms(action.at_bar or 0,   ref_bpm)
+
+            # Guard: if Claude put from_bar=0 on a play that follows a fade_in, the play
+            # would double-sum the fade window. Clamp at_ms/from_ms to after the fade ends.
+            if tid in fade_in_end and at_ms < fade_in_end[tid]:
+                gap     = fade_in_end[tid] - at_ms
+                at_ms   = fade_in_end[tid]
+                from_ms = from_ms + gap
+                del fade_in_end[tid]
+
             active_state[tid] = {"at_ms": at_ms, "from_ms": from_ms}
             src = loaded[tid]
             layers[tid] = layers[tid].overlay(src[from_ms:], position=at_ms)
@@ -656,6 +667,7 @@ def render(script: MixScript, output_path: str, export_mp3: bool = False) -> str
             at_ms    = bars_to_ms(action.start_bar or 0, ref_bpm)
             from_ms  = bars_to_ms(action.from_bar or 0, ref_bpm)
             active_state[tid] = {"at_ms": at_ms, "from_ms": from_ms}
+            fade_in_end[tid]  = at_ms + fade_ms
 
             if action.stems and stem_layers:
                 mixed: Optional[AudioSegment] = None
@@ -704,23 +716,39 @@ def render(script: MixScript, output_path: str, export_mp3: bool = False) -> str
             if action.incoming_track:
                 in_tid = action.incoming_track
                 bass_stem = stem_layers.get((in_tid, "bass"))
-                if bass_stem is not None and in_tid in active_state:
-                    state = active_state[in_tid]
-                    stem_offset = state["from_ms"] + (swap_ms - state["at_ms"])
-                    stem_offset = max(0, stem_offset)
-                    bass_tail = bass_stem[stem_offset:]
-                    # Find next play action for in_tid after swap_ms
-                    next_play_ms: Optional[int] = None
-                    for a in script.actions:
-                        if a.type == "play" and a.track == in_tid:
-                            a_ms = bars_to_ms(a.at_bar or 0, ref_bpm)
-                            if a_ms > swap_ms:
-                                if next_play_ms is None or a_ms < next_play_ms:
-                                    next_play_ms = a_ms
-                    if next_play_ms is not None:
-                        bass_tail = bass_tail[:next_play_ms - swap_ms]
-                    if len(bass_tail) > 0:
-                        layers[in_tid] = layers[in_tid].overlay(bass_tail, position=swap_ms)
+                if bass_stem is not None:
+                    if in_tid in active_state:
+                        state = active_state[in_tid]
+                        stem_offset = state["from_ms"] + (swap_ms - state["at_ms"])
+                    else:
+                        # bass_swap fires before T2's fade_in — derive offset from the
+                        # fade_in action directly rather than a not-yet-populated active_state.
+                        fi_action = next(
+                            (a for a in script.actions
+                             if a.track == in_tid and a.type == "fade_in"),
+                            None,
+                        )
+                        if fi_action is None:
+                            bass_stem = None  # no anchor — skip restore
+                        else:
+                            fi_from_ms = bars_to_ms(fi_action.from_bar or 0, ref_bpm)
+                            fi_at_ms   = bars_to_ms(fi_action.start_bar or 0, ref_bpm)
+                            stem_offset = max(0, fi_from_ms + (swap_ms - fi_at_ms))
+                    if bass_stem is not None:
+                        stem_offset = max(0, stem_offset)
+                        bass_tail = bass_stem[stem_offset:]
+                        # Find next play action for in_tid after swap_ms
+                        next_play_ms: Optional[int] = None
+                        for a in script.actions:
+                            if a.type == "play" and a.track == in_tid:
+                                a_ms = bars_to_ms(a.at_bar or 0, ref_bpm)
+                                if a_ms > swap_ms:
+                                    if next_play_ms is None or a_ms < next_play_ms:
+                                        next_play_ms = a_ms
+                        if next_play_ms is not None:
+                            bass_tail = bass_tail[:next_play_ms - swap_ms]
+                        if len(bass_tail) > 0:
+                            layers[in_tid] = layers[in_tid].overlay(bass_tail, position=swap_ms)
 
         elif action.type == "loop":
             loop_bars     = action.loop_bars or 8

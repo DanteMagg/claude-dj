@@ -146,7 +146,9 @@ max -- cite specific section labels, bar numbers, key move, energy arc, and bass
 }
 ```
 
-All bar values are absolute. `stems` scalars 0.0-1.0. `eq` values 0.0-1.0 (0=kill, 1=unity).
+Bar values depend on context: in a 2-track sub-script (plan_transition), all bars are LOCAL to each
+track's first downbeat (T1 bar 0 = T1 start, T2 bar 0 = T2 start). In single-track scripts, bars are
+track-local from bar 0. `stems` scalars 0.0-1.0. `eq` values 0.0-1.0 (0=kill, 1=unity).
 `bass_swap.at_bar` and `loop.start_bar` must be multiples of 8.
 """
 
@@ -273,7 +275,7 @@ _WINDOW_PROMPT_TEMPLATE = """\
 Given these two track summaries, choose the optimal transition window.
 
 {summaries}
-
+{peek_section}
 Output a single JSON object:
 {{
   "t1_exit_bar":  <int: bar in T1 where fade_out starts — use its mix_out or breakdown_start cue>,
@@ -284,10 +286,26 @@ Output a single JSON object:
 
 Rules:
 - t1_exit_bar should be T1's mix_out cue (or breakdown_start for a slower blend).
+  If the zone data above shows the suggested exit bar still has high drums/rms, push the
+  exit later to a lower-energy bar.
 - t2_enter_bar should be T2's mix_in cue (usually 0 — the clean intro start).
 - window_bars default = 16. Use 32 for deep/prog styles; 8 for key clashes or tight cuts.
 - style = "blend" for standard crossfades, "cut" for instant switches, "drop_swap" for matching drops.
 """
+
+
+def _format_peek_rows(rows: list[dict], probe_bar: int) -> str:
+    """Format a handful of zone rows for Phase 1 context."""
+    if not rows:
+        return ""
+    lines = [f"T1 energy around suggested exit (bar {probe_bar}) — drums/harm/rms/onsets:"]
+    for r in rows:
+        marker = " ← suggested exit" if r["bar"] == probe_bar else ""
+        lines.append(
+            f"  b{r['bar']:3d}: d={r['drums']:.2f} h={r['harmonic']:.2f} "
+            f"r={r['rms']:.2f} on={r['onsets']}{marker}"
+        )
+    return "\n".join(lines) + "\n\n"
 
 
 def select_transition_window(
@@ -296,20 +314,40 @@ def select_transition_window(
     model: str,
 ) -> dict:
     """
-    Phase 1: lightweight API call (~300 in / ~50 out tokens) that picks where the
-    transition should happen.  Returns a dict with t1_exit_bar, t2_enter_bar,
-    window_bars, style.  Falls back to cue-point defaults on any error.
+    Phase 1: lightweight API call that picks where the transition should happen.
+    Runs a quick per-bar energy peek (~8 bars around the default T1 exit) so the
+    model can tell whether the suggested cue point is actually low-energy or still
+    kicking.  Falls back to cue-point defaults on any error.
     """
     summaries = (
         _format_track_summary(t1, "T1") + "\n\n" + _format_track_summary(t2, "T2")
     )
-    prompt = _WINDOW_PROMPT_TEMPLATE.format(summaries=summaries)
 
-    # Sensible defaults derived from cue points
+    # Sensible defaults derived from cue points (needed before the API call)
     cue_t1 = {c.name: c.bar for c in t1.cue_points}
     cue_t2 = {c.name: c.bar for c in t2.cue_points}
+    probe_bar = (
+        cue_t1.get("mix_out")
+        or cue_t1.get("breakdown_start")
+        or max(0, t1.bar_grid.n_bars - 32)
+    )
+
+    # Quick zone peek: 4 bars lead-in + 8 bars past the suggested exit (~12 bars total)
+    peek_section = ""
+    try:
+        from analyze import analyze_transition_zone as _peek_zone  # local import avoids circular
+        peek_rows = _peek_zone(
+            t1.file, t1.bpm, t1.first_downbeat_s,
+            max(0, probe_bar - 4), 12,
+        )
+        peek_section = _format_peek_rows(peek_rows, probe_bar)
+    except Exception as exc:
+        print(f"[mix_director] select_window peek failed ({exc}) — skipping zone hint")
+
+    prompt = _WINDOW_PROMPT_TEMPLATE.format(summaries=summaries, peek_section=peek_section)
+
     default = {
-        "t1_exit_bar":  cue_t1.get("mix_out") or cue_t1.get("breakdown_start") or max(0, t1.bar_grid.n_bars - 32),
+        "t1_exit_bar":  probe_bar,
         "t2_enter_bar": cue_t2.get("mix_in", 0),
         "window_bars":  16,
         "style":        "blend",
@@ -440,8 +478,14 @@ def _format_plan_prompt(
     t1_table = _format_zone_table(t1_zone, "T1", "exit zone")
     t2_table = _format_zone_table(t2_zone, "T2", "entry zone")
 
+    coord_note = (
+        "COORDINATE SYSTEM: All bar values in your output must be LOCAL to each track's "
+        "first downbeat (T1 bar 0 = T1's first_downbeat_s, T2 bar 0 = T2's first_downbeat_s). "
+        "Do NOT use global mix bar numbers. The zone data bars above are already in track-local space.\n\n"
+    )
     return (
         "You are planning a 2-track transition.\n\n"
+        f"{coord_note}"
         f"{summaries}\n\n"
         f"Suggested window: T1 exits ~bar {window['t1_exit_bar']}, "
         f"T2 enters ~bar {window['t2_enter_bar']}, overlap ~{window['window_bars']} bars, "

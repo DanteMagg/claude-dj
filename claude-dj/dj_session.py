@@ -344,16 +344,31 @@ async def dj_worker(
         # ── Phase 2a: deep zone analysis (CPU only, ~1-2s per track) ─────────
         state.deck_b = DjDeckB(status="planning", title=next_analysis.title, hash=next_hash)
 
-        # Run both zone analyses in parallel in the background executor
+        # Run both zone analyses in parallel in the background executor.
+        # Window sizes are adaptive: cover lead-in + full overlap + tail, but clamp to
+        # the track's remaining bars so short tracks don't request audio past EOF.
+        w_bars = window["window_bars"]
+
+        t1_lead_in    = min(16, window["t1_exit_bar"])
+        t1_zone_start = max(0, window["t1_exit_bar"] - t1_lead_in)
+        t1_bars_avail = max(0, current_analysis.bar_grid.n_bars - t1_zone_start)
+        t1_n_bars     = min(t1_bars_avail, t1_lead_in + w_bars + 16)
+        t1_n_bars     = max(t1_n_bars, min(16, t1_bars_avail))
+
+        t2_zone_start = window["t2_enter_bar"]
+        t2_bars_avail = max(0, next_analysis.bar_grid.n_bars - t2_zone_start)
+        t2_n_bars     = min(t2_bars_avail, w_bars + 24)
+        t2_n_bars     = max(t2_n_bars, min(16, t2_bars_avail))
+
         t1_zone_future = loop.run_in_executor(
             _bg_executor, _analyze_zone,
             current_analysis.file, current_analysis.bpm, current_analysis.first_downbeat_s,
-            max(0, window["t1_exit_bar"] - 8), 56,  # 8-bar lead-in, 56-bar window
+            t1_zone_start, t1_n_bars,
         )
         t2_zone_future = loop.run_in_executor(
             _bg_executor, _analyze_zone,
             next_analysis.file, next_analysis.bpm, next_analysis.first_downbeat_s,
-            window["t2_enter_bar"], 48,
+            t2_zone_start, t2_n_bars,
         )
         try:
             t1_zone, t2_zone = await asyncio.gather(t1_zone_future, t2_zone_future)
@@ -369,6 +384,25 @@ async def dj_worker(
                 t1_labeled, t2_labeled, t1_zone, t2_zone, window, model,
             )
             sub_script = normalize(sub_script)
+
+            # Clamp T2 fade_in to ±2× the planned window_bars.
+            # Claude occasionally outputs a 40-bar blend when window_bars=16; nothing in
+            # the normalizer catches this because it only enforces phrase multiples.
+            w_max = window["window_bars"] * 2
+            w_min = max(8, window["window_bars"] // 2)
+            clamped_actions = []
+            for a in sub_script.actions:
+                if a.type == "fade_in" and a.track == "T2" and a.duration_bars is not None:
+                    clamped = max(w_min, min(w_max, a.duration_bars))
+                    if clamped != a.duration_bars:
+                        print(
+                            f"[dj_worker] T2 fade_in duration clamped "
+                            f"{a.duration_bars}→{clamped} bars (window_bars={window['window_bars']})"
+                        )
+                    a = dataclasses.replace(a, duration_bars=clamped)
+                clamped_actions.append(a)
+            sub_script = dataclasses.replace(sub_script, actions=clamped_actions)
+
         except Exception as exc:
             err_str = str(exc)
             print(f"[dj_worker] plan_transition {current_id}→{next_id} failed: {exc}")
@@ -418,10 +452,14 @@ async def dj_worker(
         min_offset = int(actual_playback_bar) - sub_t2_first + TRANSITION_LOOKAHEAD
 
         # Hard lower bound: T2's earliest action must land AFTER the render head.
-        # Use a tight margin (8 bars ≈ 15s) — the pacing bound (MAX_LOOKAHEAD_SECS=30)
-        # keeps the render head only ~16 bars ahead, so 8 bars extra is plenty of headroom.
+        # sub_t2_earliest is T2-local (0-indexed), t2_offset is the global adjustment we're
+        # solving for. In global space, T2's earliest action lands at:
+        #   sub_t2_earliest + t2_offset
+        # We need:  sub_t2_earliest + t2_offset > render_head + 8
+        # → min_offset_render = render_head - sub_t2_earliest + 8
+        # (mixing spaces is intentional — t2_offset carries the global shift)
         render_head = audio_sess.scheduler._render_bar
-        min_offset_render = render_head - sub_t2_earliest + 8  # 8-bar margin past render head
+        min_offset_render = render_head - sub_t2_earliest + 8
 
         adjusted_offset = max(current_start, min_offset, min_offset_render)
         if adjusted_offset != current_start:
