@@ -60,3 +60,53 @@ export interface StatusResponse {
   ref_bpm: number;
   tracks: TrackRef[];
 }
+
+// ── Library ───────────────────────────────────────────────────────────────────
+
+export interface LibraryTrack {
+  hash: string;
+  path: string;
+  title: string;
+  artist: string;
+  bpm: number;
+  key_camelot: string;
+  key_standard: string;
+  energy: number;
+  duration_s: number;
+  /** compact energy string e.g. "4567898765…" (one digit 0-9 per bar) */
+  energy_curve: string;
+  cue_points: { name: string; bar: number; type: string }[];
+  first_downbeat_s: number;
+  analyzed_at?: string;
+}
+
+export interface LibraryScanJob {
+  status: "running" | "done" | "error";
+  progress: number;
+  total: number;
+  known: number;
+  new: number;
+  error: string | null;
+}
+
+// ── DJ Session ────────────────────────────────────────────────────────────────
+
+export interface DjDeck {
+  track_id: string;
+  hash: string;
+  title: string;
+  start_bar: number;
+  status: string;
+}
+
+export interface DjState {
+  status: "starting" | "playing" | "error";
+  session_id: string | null;
+  deck_a: DjDeck | null;
+  deck_b: DjDeck | null;
+  history: string[];
+  queue: string[];
+  ref_bpm: number | null;
+  script: MixScript | null;
+  error: string | null;
+}

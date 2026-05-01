@@ -2,17 +2,11 @@ import { useCallback, useRef, useState } from "react";
 import { apiFetch } from "../api";
 import type { AnalysisJob } from "../types";
 
-interface Props {
-  onJobReady: (jobId: string) => void;
-}
+interface Props { onJobReady: (jobId: string) => void; }
 
 declare global {
   interface Window {
-    electron?: {
-      selectFolder: () => Promise<string | null>;
-      showInFolder: (path: string) => void;
-      isElectron: true;
-    };
+    electron?: { selectFolder: () => Promise<string | null>; isElectron: true };
   }
 }
 
@@ -50,26 +44,21 @@ export default function DropZone({ onJobReady }: Props) {
   const pickFolder = useCallback(async () => {
     if (window.electron) {
       const picked = await window.electron.selectFolder();
-      if (picked) {
-        setFolder(picked);
-        await startAnalysis(picked);
-      }
+      if (picked) { setFolder(picked); await startAnalysis(picked); }
     }
   }, [startAnalysis]);
 
-  const pct = job && job.total > 0 ? Math.round((job.progress / job.total) * 100) : 0;
+  const pct        = job && job.total > 0 ? Math.round((job.progress / job.total) * 100) : 0;
   const isElectron = !!window.electron;
 
   return (
-    <div className="dz-wrap">
+    <div className="dz">
       {isElectron ? (
-        /* Native picker — the clean path */
-        <button className="dz-pick-btn" onClick={pickFolder} disabled={job?.status === "running"}>
-          <span className="dz-pick-icon">📂</span>
-          <span>{folder ? folder.split("/").pop() : "Choose Music Folder…"}</span>
+        <button className="dz-pick" onClick={pickFolder} disabled={job?.status === "running"}>
+          <span className="dz-pick-icon">◫</span>
+          {folder ? folder.split("/").pop() : "Choose Music Folder…"}
         </button>
       ) : (
-        /* Browser fallback: manual path entry */
         <div className="dz-row">
           <input
             className="dz-input"
@@ -80,11 +69,11 @@ export default function DropZone({ onJobReady }: Props) {
             onKeyDown={(e) => e.key === "Enter" && startAnalysis(folder)}
           />
           <button
-            className="dz-analyze-btn"
+            className="dz-btn"
             disabled={!folder.trim() || job?.status === "running"}
             onClick={() => startAnalysis(folder)}
           >
-            Analyze
+            {job?.status === "running" ? "…" : "Analyze"}
           </button>
         </div>
       )}
@@ -93,70 +82,58 @@ export default function DropZone({ onJobReady }: Props) {
         <div className="dz-status">
           {job.status === "running" && (
             <>
-              <div className="dz-progress-wrap">
-                <div className="dz-progress-fill" style={{ width: `${pct}%` }} />
-              </div>
-              <span className="dz-status-txt">
-                Analyzing… {job.progress}/{job.total}
-              </span>
+              <div className="dz-bar"><div className="dz-bar-fill" style={{ width: `${pct}%` }} /></div>
+              <span className="dz-txt">Analyzing {job.progress}/{job.total} tracks…</span>
             </>
           )}
           {job.status === "done" && (
-            <span className="dz-status-txt ok">
+            <span className="dz-txt dz-txt--ok">
               ✓ {job.total} track{job.total !== 1 ? "s" : ""} ready
-              {jobId && <span className="dz-jid"> · {jobId.slice(0, 8)}</span>}
+              {jobId && <span className="dz-id"> · {jobId.slice(0, 8)}</span>}
             </span>
           )}
           {job.status === "error" && (
-            <span className="dz-status-txt err">✗ {job.error}</span>
+            <span className="dz-txt dz-txt--err">✗ {job.error}</span>
           )}
         </div>
       )}
 
       <style>{`
-        .dz-wrap { display: flex; flex-direction: column; gap: 10px; }
-        .dz-pick-btn {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          width: 100%;
-          padding: 12px 14px;
-          background: var(--surface2);
-          border: 1px solid var(--border);
-          border-radius: var(--radius);
-          cursor: pointer;
-          font-size: 13px;
-          color: var(--text);
+        .dz { display: flex; flex-direction: column; gap: 8px; }
+        .dz-pick {
+          display: flex; align-items: center; gap: 8px; width: 100%;
+          padding: 10px 12px; background: var(--surface2);
+          border: 1px solid var(--border); border-radius: var(--radius);
+          font-size: 13px; color: var(--text); text-align: left;
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
           transition: border-color .15s;
-          text-align: left;
-          overflow: hidden;
-          white-space: nowrap;
-          text-overflow: ellipsis;
         }
-        .dz-pick-btn:hover:not(:disabled) { border-color: var(--accent); }
-        .dz-pick-btn:disabled { opacity: .5; cursor: not-allowed; }
-        .dz-pick-icon { font-size: 16px; flex-shrink: 0; }
+        .dz-pick:hover:not(:disabled) { border-color: var(--border2); }
+        .dz-pick:disabled { opacity: .5; cursor: not-allowed; }
+        .dz-pick-icon { font-size: 15px; flex-shrink: 0; }
+
         .dz-row { display: flex; gap: 8px; }
-        .dz-input { flex: 1; }
-        .dz-analyze-btn {
-          padding: 6px 14px;
-          background: var(--accent);
-          color: #fff;
-          border-radius: var(--radius);
-          font-weight: 600;
+        .dz-input { flex: 1; font-size: 13px; }
+        .dz-btn {
+          padding: 6px 14px; background: var(--surface3);
+          border: 1px solid var(--border2); border-radius: var(--radius);
+          font-size: 12px; font-weight: 600; color: var(--text); white-space: nowrap;
+          transition: border-color .15s;
         }
-        .dz-analyze-btn:disabled { opacity: .4; cursor: not-allowed; }
+        .dz-btn:hover:not(:disabled) { border-color: var(--orange); color: var(--orange); }
+        .dz-btn:disabled { opacity: .4; cursor: not-allowed; }
+
         .dz-status { display: flex; flex-direction: column; gap: 5px; }
-        .dz-progress-wrap {
+        .dz-bar {
           height: 2px; background: var(--border); border-radius: 1px; overflow: hidden;
         }
-        .dz-progress-fill {
-          height: 100%; background: var(--accent); border-radius: 1px; transition: width .3s;
+        .dz-bar-fill {
+          height: 100%; background: var(--orange); border-radius: 1px; transition: width .3s;
         }
-        .dz-status-txt { font-size: 11px; color: var(--text-2); }
-        .dz-status-txt.ok  { color: var(--green); }
-        .dz-status-txt.err { color: #ff4d4d; }
-        .dz-jid { color: var(--text-3); font-family: var(--mono); }
+        .dz-txt     { font-size: 11px; color: var(--text-2); font-family: var(--mono); }
+        .dz-txt--ok  { color: var(--green); }
+        .dz-txt--err { color: var(--red); }
+        .dz-id { color: var(--text-3); }
       `}</style>
     </div>
   );

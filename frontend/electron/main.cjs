@@ -25,12 +25,21 @@ function startPythonServer() {
     { flags: "a" },
   );
 
-  // Prefer a virtualenv next to the backend if it exists
-  const venv   = path.join(BACKEND_DIR, ".venv", "bin", "python");
-  const python = fs.existsSync(venv) ? venv : "python3";
+  // Python resolution priority: .venv → conda claude-dj env → system python3
+  const candidates = [
+    path.join(BACKEND_DIR, ".venv", "bin", "python"),
+    "/opt/anaconda3/envs/claude-dj/bin/python",
+    "/opt/homebrew/bin/python3",
+    "python3",
+  ];
+  const python = candidates.find((p) => p === "python3" || fs.existsSync(p));
+
+  // Forward ANTHROPIC_API_KEY from the shell environment (set before launching)
+  const env = { ...process.env };
 
   serverProcess = spawn(python, ["cli.py", "serve", "--port", String(SERVER_PORT)], {
     cwd:   BACKEND_DIR,
+    env,
     stdio: ["ignore", "pipe", "pipe"],
   });
 

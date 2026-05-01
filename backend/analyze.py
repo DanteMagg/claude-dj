@@ -125,8 +125,10 @@ def estimate_key(y: np.ndarray, sr: int) -> KeyInfo:
 
 
 def compute_rms_db(y: np.ndarray) -> float:
-    rms = np.sqrt(np.mean(y ** 2))
-    if rms < 1e-10:
+    if len(y) == 0:
+        return -80.0
+    rms = float(np.sqrt(np.mean(y ** 2)))
+    if not np.isfinite(rms) or rms < 1e-10:
         return -80.0
     return float(20 * np.log10(rms))
 
@@ -148,8 +150,9 @@ def segment_audio(y: np.ndarray, sr: int, downbeats: np.ndarray, n_segments: int
         R = librosa.segment.recurrence_matrix(mfcc, mode="affinity", sym=True)
         bounds_frames = librosa.segment.agglomerative(R, k=min(n_segments, len(downbeats) - 1))
         bounds_times = librosa.frames_to_time(bounds_frames, sr=sr)
-        bounds_times = np.concatenate([[0.0], bounds_times, [librosa.get_duration(y=y, sr=sr)]])
-        return [(float(bounds_times[i]), float(bounds_times[i + 1])) for i in range(len(bounds_times) - 1)]
+        bounds_times = np.unique(np.concatenate([[0.0], bounds_times, [librosa.get_duration(y=y, sr=sr)]]))
+        return [(float(s), float(e)) for s, e in
+                zip(bounds_times[:-1], bounds_times[1:]) if e - s > 0.01]
     except Exception:
         # fallback: split evenly on downbeats
         duration = librosa.get_duration(y=y, sr=sr)
@@ -270,7 +273,7 @@ def _energy_cue_points(energy_curve: list[int], n_bars: int) -> list[CuePoint]:
     ]
 
 
-def analyze_track(audio_path: str, track_id: str) -> TrackAnalysis:
+def analyze_track(audio_path: str, track_id: str, no_stems: bool = False) -> TrackAnalysis:
     audio_path = str(Path(audio_path).resolve())
     cache_dir = track_cache_dir(audio_path)
     analysis_cache = cache_dir / "analysis.json"
@@ -337,7 +340,6 @@ def analyze_track(audio_path: str, track_id: str) -> TrackAnalysis:
     loudness_dbfs = round(compute_rms_db(y), 1)
 
     # Stem separation
-    no_stems = os.environ.get("CLAUDE_DJ_NO_STEMS") == "1"
     if no_stems:
         stem_paths = None
     else:
@@ -408,5 +410,5 @@ def _dict_to_analysis(d: dict) -> TrackAnalysis:
     return TrackAnalysis(**d)
 
 
-def analyze_tracks(audio_paths: list[str]) -> list[TrackAnalysis]:
-    return [analyze_track(p, f"T{i+1}") for i, p in enumerate(audio_paths)]
+def analyze_tracks(audio_paths: list[str], no_stems: bool = False) -> list[TrackAnalysis]:
+    return [analyze_track(p, f"T{i+1}", no_stems=no_stems) for i, p in enumerate(audio_paths)]
