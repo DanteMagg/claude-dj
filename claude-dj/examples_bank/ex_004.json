@@ -1,0 +1,82 @@
+{
+  "id": "ex_004",
+  "meta": {
+    "genre": "house",
+    "t1_bpm": 136.0,
+    "t2_bpm": 143.6,
+    "t1_camelot": "12B",
+    "t2_camelot": "11B",
+    "camelot_distance": 1,
+    "bpm_delta": 7.6,
+    "exit_section": "intro",
+    "overlap_bars": 16,
+    "scenario": "house +1 move, faster BPM 136-144, 7.6 BPM gap, intro exit",
+    "source": "Dollkraut @ ADE Boiler Room Amsterdam 2016-10-21",
+    "t1_artist": "Doe Maar",
+    "t1_title": "Bella Donna",
+    "t2_artist": "Michael Rother",
+    "t2_title": "Karussell"
+  },
+  "transition_arc": "Faster BPM range (136-144 BPM) \u2014 bars are shorter (~1.7s each). T1 has a long outro/intro-type section starting at bar 72 with percussion thinning out. Both tracks skip their silent lead-in bars (from_bar=8). The 7.6 BPM gap is audible but masked by the sparse exit section energy.",
+  "annotated_actions": [
+    {
+      "action": {
+        "type": "play",
+        "track": "T1",
+        "at_bar": 0,
+        "from_bar": 8
+      },
+      "t1_state": "T1 bar 8: first real musical content (bars 0-7 silent lead-in)",
+      "why": "from_bar=8 skips T1's 8-bar silent lead-in. Track begins at first drum hit."
+    },
+    {
+      "action": {
+        "type": "fade_out",
+        "track": "T1",
+        "start_bar": 72,
+        "duration_bars": 16
+      },
+      "t1_state": "T1 bar 80 (play bar 72 + from_bar 8 offset): section=OUTRO, drums=0.15, harmonic=0.2, rms=0.18 \u2014 only hi-hat pattern remaining",
+      "t2_state": "T2 bar 8: first music content after lead-in, percussion only",
+      "why": "T1 at bar 72 is deep into its outro \u2014 kick has dropped, only hi-hat remaining. Very low energy makes this ideal even though the track is not over."
+    },
+    {
+      "action": {
+        "type": "fade_in",
+        "track": "T2",
+        "start_bar": 72,
+        "duration_bars": 16,
+        "from_bar": 8,
+        "stems": {
+          "drums": 0.8,
+          "bass": 0.0,
+          "vocals": 0.0,
+          "other": 0.6
+        }
+      },
+      "t2_state": "T2 bar 8: first meaningful content \u2014 light percussion, no bass yet",
+      "why": "T2 from_bar=8 same pattern: skips silent lead-in. drums:0.8 at 136 BPM brings in a hi-hat texture that fills the gap left by T1's thinning drums."
+    },
+    {
+      "action": {
+        "type": "bass_swap",
+        "track": "T1",
+        "at_bar": 80,
+        "incoming_track": "T2"
+      },
+      "t1_state": "T1 play bar 80: bass=0.05 (essentially gone), drums=0.08",
+      "t2_state": "T2 bar 16: bass just starting to appear (0.2)",
+      "why": "T1 bass is nearly inaudible. Swap passes bass ownership just as T2 bass emerges."
+    },
+    {
+      "action": {
+        "type": "play",
+        "track": "T2",
+        "at_bar": 88,
+        "from_bar": 24
+      },
+      "t2_state": "T2 bar 24: full groove at 143.6 BPM, bass locked in, RMS 0.55",
+      "why": "T2 groove established. T1 fully faded at bar 88."
+    }
+  ]
+}

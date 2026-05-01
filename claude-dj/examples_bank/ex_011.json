@@ -1,0 +1,82 @@
+{
+  "id": "ex_011",
+  "meta": {
+    "genre": "house",
+    "t1_bpm": 117.5,
+    "t2_bpm": 123.0,
+    "t1_camelot": "6B",
+    "t2_camelot": "6A",
+    "camelot_distance": 1,
+    "bpm_delta": 5.5,
+    "exit_section": "groove",
+    "overlap_bars": 16,
+    "scenario": "house B to A relative minor move, 5.5 BPM gap, mood darkening major to minor",
+    "source": "Kerri Chandler @ Maida Vale Essential Mix 2019-04-27",
+    "t1_artist": "Muallem",
+    "t1_title": "Holland Tunnel",
+    "t2_artist": "CPEN & Bluey",
+    "t2_title": "When U Say"
+  },
+  "transition_arc": "6B (Bb major) to 6A (Ab minor) \u2014 moving from major to its relative minor. Mood darkening: bright major feel of T1 gives way to T2 minor groove. 5.5 BPM increase (117 to 123) adds subtle energy. T2 from_bar=0 has genuine percussion intro from bar 0. B to A relative move is one of the smoothest possible harmonic transitions.",
+  "annotated_actions": [
+    {
+      "action": {
+        "type": "play",
+        "track": "T1",
+        "at_bar": 0,
+        "from_bar": 8
+      },
+      "t1_state": "T1 bar 8: groove active after 8-bar intro, bass+brass stabs+kick, RMS 0.48",
+      "why": "from_bar=8 skips T1 8-bar instrumental intro."
+    },
+    {
+      "action": {
+        "type": "fade_out",
+        "track": "T1",
+        "start_bar": 56,
+        "duration_bars": 16
+      },
+      "t1_state": "T1 bar 64 (play bar 56 + from_bar 8): groove, drums=0.55, harmonic=0.50, rms=0.45",
+      "t2_state": "T2 bar 0: light kick + hi-hat (drums=0.4), bass=0.0, harmonic=0.1",
+      "why": "T1 at steady groove. B to A relative move allows harmonic blending at any energy level. Exit at bar 56 is a phrase boundary (7 x 8 bars)."
+    },
+    {
+      "action": {
+        "type": "fade_in",
+        "track": "T2",
+        "start_bar": 56,
+        "duration_bars": 16,
+        "from_bar": 0,
+        "stems": {
+          "drums": 0.8,
+          "bass": 0.0,
+          "vocals": 0.0,
+          "other": 0.6
+        }
+      },
+      "t2_state": "T2 bar 0: genuine percussion intro \u2014 kick pattern active from bar 0, no bass",
+      "why": "T2 from_bar=0: clean intro with kick present. Relative key means other:0.6 harmonic stems are safe immediately (Ab minor shares all notes with Bb major). Mood shift starts gradually over these 16 bars."
+    },
+    {
+      "action": {
+        "type": "bass_swap",
+        "track": "T1",
+        "at_bar": 64,
+        "incoming_track": "T2"
+      },
+      "t1_state": "T1 play bar 64: bass=0.22, drums=0.28, rms=0.28 \u2014 clearly diminishing",
+      "t2_state": "T2 bar 8: bass just entering (0.30)",
+      "why": "Midpoint swap. T2 bass emerged at bar 8, T1 bass diminishing."
+    },
+    {
+      "action": {
+        "type": "play",
+        "track": "T2",
+        "at_bar": 72,
+        "from_bar": 16
+      },
+      "t2_state": "T2 bar 16: full minor groove, bass+kick+pads at 123 BPM, RMS 0.50",
+      "why": "T2 full groove. Mood shift from major T1 to minor T2 complete."
+    }
+  ]
+}

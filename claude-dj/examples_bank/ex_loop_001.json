@@ -1,0 +1,94 @@
+{
+  "id": "ex_loop_001",
+  "meta": {
+    "genre": "deep_house",
+    "t1_bpm": 120.0,
+    "t2_bpm": 120.0,
+    "t1_camelot": "8A",
+    "t2_camelot": "9A",
+    "camelot_distance": 1,
+    "bpm_delta": 0.0,
+    "exit_section": "outro",
+    "overlap_bars": 16,
+    "technique": "loop_blend",
+    "scenario": "loop-assisted blend \u2014 T1 outro too short, loop extends runway for proper blend",
+    "source": "Jeremy Underground - Essential Mix 2018-09-08",
+    "t1_artist": "T1 Artist",
+    "t1_title": "Short Outro Track",
+    "t2_artist": "T2 Artist",
+    "t2_title": "Clean Intro Track"
+  },
+  "transition_arc": "T1 has an abrupt ending: a good 8-bar drum-only phrase at bar 64, then silence at bar 72. Without a loop, there are only 8 bars of clean outro material \u2014 not enough for a proper 16-bar blend with bass_swap. The loop takes the drum-only phrase at bar 64 and repeats it twice (16 extra bars), creating a stable percussion runway. T2 fades in during this loop window. The loop is transparent because the phrase has no harmonic content to repeat-fatigue. 8A to 9A is a standard +1 Camelot move \u2014 fully compatible.",
+  "annotated_actions": [
+    {
+      "action": {
+        "type": "play",
+        "track": "T1",
+        "at_bar": 0,
+        "from_bar": 0
+      },
+      "t1_state": "T1 bar 0: full groove, warm bass+kick+pads, RMS 0.45",
+      "why": "Standard entry."
+    },
+    {
+      "action": {
+        "type": "loop",
+        "track": "T1",
+        "start_bar": 64,
+        "loop_bars": 8,
+        "loop_repeats": 2,
+        "loop_mute_tail": true
+      },
+      "t1_state": "T1 bar 64: drums=0.45, harmonic=0.0, rms=0.20 \u2014 percussion-only phrase, bass has dropped, no chords. This is the ideal loop point: clean, rhythmic, transparent.",
+      "why": "T1 bar 64-71 is a drum-only percussion tail (bass gone, no harmonic content). This phrase can loop transparently without sounding like a skip. loop_repeats=2 adds 16 bars of percussion runway. After the loop, track resumes from bar 80 (= 64 + 8*2). loop_mute_tail=true silences the original under the loop window to prevent doubling."
+    },
+    {
+      "action": {
+        "type": "fade_in",
+        "track": "T2",
+        "start_bar": 64,
+        "duration_bars": 16,
+        "from_bar": 0,
+        "stems": {
+          "drums": 0.8,
+          "bass": 0.0,
+          "vocals": 0.0,
+          "other": 0.6
+        }
+      },
+      "t2_state": "T2 bar 0: clean percussion intro, kick present, bass=0.0, RMS 0.20",
+      "why": "T2 fades in during the loop window. The stable loop percussion is the ideal backdrop for T2's intro to emerge. drums:0.8 adds T2's kick alongside T1's looped percussion. bass:0.0 held \u2014 T1's bass is already gone, but the stem rule still applies."
+    },
+    {
+      "action": {
+        "type": "bass_swap",
+        "track": "T1",
+        "at_bar": 72,
+        "incoming_track": "T2"
+      },
+      "t1_state": "T1 at bar 72: loop midpoint \u2014 T1 bass already gone (was gone since bar 64). Swap is a formality.",
+      "t2_state": "T2 bar 8 (fade_in started at mix bar 64, 8 bars elapsed, from_bar=0+8=8): bass entering",
+      "why": "Midpoint of the 16-bar fade_in window. T2's bass is arriving. Even though T1 bass is already gone, the swap action formally releases T2's bass stem."
+    },
+    {
+      "action": {
+        "type": "fade_out",
+        "track": "T1",
+        "start_bar": 80,
+        "duration_bars": 8
+      },
+      "t1_state": "T1 bar 80 (= loop resume point after 64 + 8*2 = 80): track resumes here, very sparse tail",
+      "why": "After loop_repeats=2, T1 resumes from source bar 80. This is the near-silence tail. A short 8-bar fade_out finishes T1 cleanly. CRITICAL: start_bar=80 because the loop resumed at bar 80, NOT bar 64."
+    },
+    {
+      "action": {
+        "type": "play",
+        "track": "T2",
+        "at_bar": 80,
+        "from_bar": 16
+      },
+      "t2_state": "T2 bar 16: full groove \u2014 kick+bass fully established, RMS 0.48",
+      "why": "T2 full groove replaces the fade_in stem layer. The loop has served its purpose. T1 is fading out simultaneously. Clean handoff."
+    }
+  ]
+}

@@ -1,0 +1,82 @@
+{
+  "id": "ex_009",
+  "meta": {
+    "genre": "house",
+    "t1_bpm": 129.2,
+    "t2_bpm": 129.2,
+    "t1_camelot": "9A",
+    "t2_camelot": "10A",
+    "camelot_distance": 1,
+    "bpm_delta": 0.0,
+    "exit_section": "intro",
+    "overlap_bars": 16,
+    "scenario": "house +1 same BPM at 129 BPM, very sparse exit, T2 skips near-silent lead-in",
+    "source": "Tale Of Us - Essential Mix 2015-01-24",
+    "t1_artist": "Slam",
+    "t1_title": "Convolute",
+    "t2_artist": "Woo York",
+    "t2_title": "He And She"
+  },
+  "transition_arc": "Both 129.2 BPM. T1 exits from its sparsest section at bar 56 (energy already very low, percussion thinning). T2 from_bar=8 skips near-silent bars. Standard +1 Camelot at matching BPM \u2014 simplest possible blend. Energy stays flat through the window.",
+  "annotated_actions": [
+    {
+      "action": {
+        "type": "play",
+        "track": "T1",
+        "at_bar": 0,
+        "from_bar": 0
+      },
+      "t1_state": "T1 bar 0: full 129 BPM groove, kick+bass, RMS 0.52",
+      "why": "Clean entry at first downbeat."
+    },
+    {
+      "action": {
+        "type": "fade_out",
+        "track": "T1",
+        "start_bar": 56,
+        "duration_bars": 16
+      },
+      "t1_state": "T1 bar 56: section=OUTRO-INTRO, drums=0.2, harmonic=0.15, rms=0.18 \u2014 very sparse, only filtered hi-hats, no kick, no bass",
+      "t2_state": "T2 bar 8: percussion only, sidestick+hh, bass=0.0",
+      "why": "T1 bar 56 is its sparsest section. Energy already very low. Fading barely changes the mix energy \u2014 ideal exit."
+    },
+    {
+      "action": {
+        "type": "fade_in",
+        "track": "T2",
+        "start_bar": 56,
+        "duration_bars": 16,
+        "from_bar": 8,
+        "stems": {
+          "drums": 0.8,
+          "bass": 0.0,
+          "vocals": 0.0,
+          "other": 0.6
+        }
+      },
+      "t2_state": "T2 bar 8: first real content (bars 0-7 near-silent), sidestick active",
+      "why": "T2 from_bar=8: skips 8-bar near-silent count-in. drums:0.8 brings in T2 sidestick texture under T1 hi-hats."
+    },
+    {
+      "action": {
+        "type": "bass_swap",
+        "track": "T1",
+        "at_bar": 64,
+        "incoming_track": "T2"
+      },
+      "t1_state": "T1 bar 64: bass=0.0 (already gone at this sparse section), drums=0.1",
+      "t2_state": "T2 bar 16: bass emerging, kick established",
+      "why": "T1 bass already gone. Swap formalizes the transfer as T2 bass arrives."
+    },
+    {
+      "action": {
+        "type": "play",
+        "track": "T2",
+        "at_bar": 72,
+        "from_bar": 24
+      },
+      "t2_state": "T2 bar 24: full 129.2 BPM groove, kick+bass fully active, RMS 0.52",
+      "why": "T2 groove established. Tempo-matched transition complete."
+    }
+  ]
+}

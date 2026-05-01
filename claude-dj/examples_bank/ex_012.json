@@ -1,0 +1,82 @@
+{
+  "id": "ex_012",
+  "meta": {
+    "genre": "deep_house",
+    "t1_bpm": 123.0,
+    "t2_bpm": 117.5,
+    "t1_camelot": "12B",
+    "t2_camelot": "12A",
+    "camelot_distance": 1,
+    "bpm_delta": 5.5,
+    "exit_section": "intro",
+    "overlap_bars": 16,
+    "scenario": "deep house B to A relative, BPM decrease 123 to 118, intro exit, T2 skips its own long intro",
+    "source": "Kerri Chandler b2b Jeremy Underground @ Boiler Room 2016-08-18",
+    "t1_artist": "Mr. YT",
+    "t1_title": "Afternoon",
+    "t2_artist": "Todd Terje",
+    "t2_title": "Inspector Norse"
+  },
+  "transition_arc": "12B (E major) to 12A (D minor) \u2014 relative minor move. BPM decreases (123 to 118), cool-down. T1 exits from its low-energy intro section (bar 48). T2 has a 16-bar intro the DJ skips (from_bar=16) \u2014 entering at first real musical phrase. Relative key is smooth; BPM drop reinforces introspective deeper feel.",
+  "annotated_actions": [
+    {
+      "action": {
+        "type": "play",
+        "track": "T1",
+        "at_bar": 0,
+        "from_bar": 0
+      },
+      "t1_state": "T1 bar 0: bright E major groove, piano + kick + bass, RMS 0.48",
+      "why": "T1 enters at first downbeat."
+    },
+    {
+      "action": {
+        "type": "fade_out",
+        "track": "T1",
+        "start_bar": 48,
+        "duration_bars": 16
+      },
+      "t1_state": "T1 bar 48: section=INTRO-OUTRO, drums=0.15, harmonic=0.20, rms=0.18 \u2014 only filtered piano and faint kick",
+      "t2_state": "T2 bar 16: first real musical content after 16-bar near-silent intro",
+      "why": "T1 at bar 48 is in its sparsest section. Low energy exit matches the cool-down intention."
+    },
+    {
+      "action": {
+        "type": "fade_in",
+        "track": "T2",
+        "start_bar": 48,
+        "duration_bars": 16,
+        "from_bar": 16,
+        "stems": {
+          "drums": 0.8,
+          "bass": 0.0,
+          "vocals": 0.0,
+          "other": 0.6
+        }
+      },
+      "t2_state": "T2 bar 16: first kick hit, pads beginning to filter in, bass=0.0",
+      "why": "T2 from_bar=16: skips T2's 16-bar near-silent synth intro. other:0.6 brings T2 D minor pads \u2014 relative key means E major and D minor share the same notes."
+    },
+    {
+      "action": {
+        "type": "bass_swap",
+        "track": "T1",
+        "at_bar": 56,
+        "incoming_track": "T2"
+      },
+      "t1_state": "T1 bar 56: bass=0.05, drums=0.08 \u2014 nearly inaudible",
+      "t2_state": "T2 bar 24 (from_bar=16 + 8): bass entering (0.30)",
+      "why": "T1 bass essentially gone. Swap is clean \u2014 formalizing the bass transfer already happening naturally."
+    },
+    {
+      "action": {
+        "type": "play",
+        "track": "T2",
+        "at_bar": 64,
+        "from_bar": 32
+      },
+      "t2_state": "T2 bar 32: full deep house groove at 117.5 BPM, D minor, bass+kick+pads, RMS 0.45",
+      "why": "T2 full groove. BPM decrease (123 to 118) and key shift (major to relative minor) achieves the intended deeper feel."
+    }
+  ]
+}

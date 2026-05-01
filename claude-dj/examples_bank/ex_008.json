@@ -1,0 +1,82 @@
+{
+  "id": "ex_008",
+  "meta": {
+    "genre": "house",
+    "t1_bpm": 123.0,
+    "t2_bpm": 123.0,
+    "t1_camelot": "5A",
+    "t2_camelot": "4A",
+    "camelot_distance": 1,
+    "bpm_delta": 0.0,
+    "exit_section": "groove",
+    "overlap_bars": 16,
+    "scenario": "house +1 same BPM, T1 entered mid-track (from_bar=32), short play technique",
+    "source": "Tale Of Us - Essential Mix 2015-01-24",
+    "t1_artist": "Plastikman",
+    "t1_title": "EXpand",
+    "t2_artist": "Locked Groove",
+    "t2_title": "Eleven"
+  },
+  "transition_arc": "T1 entered at from_bar=32 \u2014 DJ skipped T1's long sparse intro and started at the groove. Only 40 bars of T1 were played (bars 32\u201372 of the track). Quick exit at play_bar 40 means T1 used as a textural bridge only. T2 enters from bar 0 with a genuine percussion intro.",
+  "annotated_actions": [
+    {
+      "action": {
+        "type": "play",
+        "track": "T1",
+        "at_bar": 0,
+        "from_bar": 32
+      },
+      "t1_state": "T1 bar 32: first groove hit after long build, kick+bass active, RMS 0.50",
+      "why": "from_bar=32: T1 has a 32-bar sparse/minimal intro. Entering at bar 32 presents T1 at its main groove body immediately."
+    },
+    {
+      "action": {
+        "type": "fade_out",
+        "track": "T1",
+        "start_bar": 40,
+        "duration_bars": 16
+      },
+      "t1_state": "T1 track bar 72 (play bar 40 + from_bar 32): groove still active, drums=0.65, rms=0.50",
+      "t2_state": "T2 bar 0: clean percussion intro, light kick, bass=0.0, rms=0.20",
+      "why": "DJ exits T1 early \u2014 only played 40 bars. Purposeful short play. T2 clean intro allows smooth handoff despite T1 being in full groove."
+    },
+    {
+      "action": {
+        "type": "fade_in",
+        "track": "T2",
+        "start_bar": 40,
+        "duration_bars": 16,
+        "from_bar": 0,
+        "stems": {
+          "drums": 0.8,
+          "bass": 0.0,
+          "vocals": 0.0,
+          "other": 0.6
+        }
+      },
+      "t2_state": "T2 bar 0: light kick (0.5), bass=0.0, other=0.2 (minimal harmonic)",
+      "why": "T2 from_bar=0: genuine clean intro. drums:0.8 adds T2 kick under T1 groove, creating a brief 2-kick texture before T1 kick fades."
+    },
+    {
+      "action": {
+        "type": "bass_swap",
+        "track": "T1",
+        "at_bar": 48,
+        "incoming_track": "T2"
+      },
+      "t1_state": "T1 play bar 48: drums=0.35, bass=0.30, rms=0.32 \u2014 fading",
+      "t2_state": "T2 bar 8: bass just entering (0.25)",
+      "why": "T1 clearly diminishing. T2 bass entering. Standard midpoint swap."
+    },
+    {
+      "action": {
+        "type": "play",
+        "track": "T2",
+        "at_bar": 56,
+        "from_bar": 16
+      },
+      "t2_state": "T2 bar 16: full groove, bass+kick locked in at 123 BPM, RMS 0.55",
+      "why": "T2 full groove. T1 completely gone at play bar 56."
+    }
+  ]
+}

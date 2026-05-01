@@ -1,0 +1,82 @@
+{
+  "id": "ex_002",
+  "meta": {
+    "genre": "house",
+    "t1_bpm": 123.0,
+    "t2_bpm": 123.0,
+    "t1_camelot": "11A",
+    "t2_camelot": "12A",
+    "camelot_distance": 1,
+    "bpm_delta": 0.0,
+    "exit_section": "groove",
+    "overlap_bars": 16,
+    "scenario": "house +1 move, same BPM, groove exit \u2014 energetic blend",
+    "source": "Tale Of Us - Essential Mix 2015-01-24",
+    "t1_artist": "Recondite",
+    "t1_title": "Think Twice",
+    "t2_artist": "Dream Weapons",
+    "t2_title": "Moonland"
+  },
+  "transition_arc": "Both at 123 BPM, no stretch needed. T1 exits from the main groove body (full kick+bass still active at bar 48). This is a harder exit than intro blending. T2 enters with drums only, bass held back. The overlap energy stays flat-to-rising: T1 kick continues for 8 bars while T2 drums layer in, then T1 bass removed via swap, T2 bass arrives at bar 64. Harmonic compatibility (11A to 12A, half step minor) means blending other stems early is safe.",
+  "annotated_actions": [
+    {
+      "action": {
+        "type": "play",
+        "track": "T1",
+        "at_bar": 0,
+        "from_bar": 0
+      },
+      "t1_state": "T1 bar 0: full groove, 4-on-floor kick, bass synth, minimal pads, RMS 0.5",
+      "why": "T1 enters at first downbeat."
+    },
+    {
+      "action": {
+        "type": "fade_out",
+        "track": "T1",
+        "start_bar": 48,
+        "duration_bars": 16
+      },
+      "t1_state": "T1 bar 48: drums=0.7, harmonic=0.5, rms=0.50 \u2014 still in main groove, kick very active",
+      "t2_state": "T2 bar 8: drums=0.5 (sidestick + clap), bass=0.0",
+      "why": "T1 is still in full groove \u2014 this is a hot exit. DJ is moving while the energy is up. 16-bar fade disguises the exit. T1 is fully silent at bar 64 exactly when T2 full groove arrives."
+    },
+    {
+      "action": {
+        "type": "fade_in",
+        "track": "T2",
+        "start_bar": 48,
+        "duration_bars": 16,
+        "from_bar": 8,
+        "stems": {
+          "drums": 0.8,
+          "bass": 0.0,
+          "vocals": 0.0,
+          "other": 0.6
+        }
+      },
+      "t2_state": "T2 bar 8: light percussion (clap+hh), no kick yet, bass=0.0",
+      "why": "T2 from_bar=8 skips T2's sparse 8-bar opening. drums:0.8 layers T2's percussion under T1's still-active groove. bass:0.0 prevents bassline clash."
+    },
+    {
+      "action": {
+        "type": "bass_swap",
+        "track": "T1",
+        "at_bar": 56,
+        "incoming_track": "T2"
+      },
+      "t1_state": "T1 bar 56: drums=0.35 (fade reducing), bass=0.4, rms=0.35",
+      "t2_state": "T2 bar 16 (from_bar=8, 8 bars in): bass about to enter at bar 24",
+      "why": "Midpoint of 16-bar window. T1 still has some bass presence \u2014 swap now to prevent both basslines sounding simultaneously as T2's bass enters at bar 24."
+    },
+    {
+      "action": {
+        "type": "play",
+        "track": "T2",
+        "at_bar": 64,
+        "from_bar": 24
+      },
+      "t2_state": "T2 bar 24: full 4-on-floor kick + bass active, RMS 0.55",
+      "why": "T2 full groove replaces fade_in layer. from_bar=24 is the bar where T2's main groove drops. T1 fade_out completes at bar 64."
+    }
+  ]
+}

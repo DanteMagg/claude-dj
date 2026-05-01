@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from datetime import date
 from pathlib import Path
 from typing import Optional
@@ -9,7 +10,177 @@ import anthropic
 
 from schema import MixAction, MixScript, MixTrackRef, TrackAnalysis
 
-_SKILL_PATH = Path(__file__).parent / "dj_skill.md"
+_SKILL_PATH    = Path(__file__).parent / "dj_skill.md"
+_EXAMPLES_DIR  = Path(__file__).parent / "examples_bank"
+
+# ---------------------------------------------------------------------------
+# Examples retrieval (deterministic RAG)
+# ---------------------------------------------------------------------------
+
+def _camelot_distance(a: str, b: str) -> int:
+    """Minimum step distance in Camelot wheel (0–6). Same key = 0."""
+    if a == b:
+        return 0
+    try:
+        def parse(k: str):
+            n = int(k[:-1])
+            t = k[-1].upper()
+            return n, t
+        an, at = parse(a)
+        bn, bt = parse(b)
+        if at == bt:
+            diff = min(abs(an - bn), 12 - abs(an - bn))
+            return diff
+        # A↔B on same number = relative major/minor = distance 1
+        if an == bn:
+            return 1
+        # Cross A/B diagonal moves: conservative fallback
+        diff = min(abs(an - bn), 12 - abs(an - bn))
+        return diff + 1
+    except Exception:
+        return 6
+
+
+def _load_all_examples() -> list[dict]:
+    if not _EXAMPLES_DIR.exists():
+        return []
+    out = []
+    for p in sorted(_EXAMPLES_DIR.glob("*.json")):
+        try:
+            out.append(json.loads(p.read_text()))
+        except Exception:
+            pass
+    return out
+
+
+def _score_example(
+    ex: dict,
+    t1: TrackAnalysis,
+    t2: TrackAnalysis,
+    window: dict,
+) -> float:
+    """
+    Lower = more similar. Weighted sum:
+      - Camelot key distance (both t1 and t2):  0.4 each
+      - BPM delta similarity:                    0.3
+      - Genre match:                             0.2
+      - Exit section match:                      0.1
+    """
+    m = ex["meta"]
+    score = 0.0
+
+    # Key compatibility — key is a KeyInfo object with .camelot, or occasionally a plain str
+    def _camelot(k) -> str:
+        if k is None:
+            return ""
+        if hasattr(k, "camelot"):
+            return k.camelot or ""
+        return str(k).split("_")[0]
+
+    t1_key = _camelot(t1.key)
+    t2_key = _camelot(t2.key)
+    score += _camelot_distance(t1_key, m.get("t1_camelot", "")) * 0.4
+    score += _camelot_distance(t2_key, m.get("t2_camelot", "")) * 0.4
+
+    # BPM delta similarity
+    actual_bpm_delta = abs(t1.bpm - t2.bpm)
+    ex_bpm_delta     = m.get("bpm_delta", 0.0)
+    score += abs(actual_bpm_delta - ex_bpm_delta) * 0.05  # 0.05 per BPM difference
+
+    # Genre: infer from BPM range
+    avg_bpm = (t1.bpm + t2.bpm) / 2
+    ex_genre = m.get("genre", "")
+    if avg_bpm < 105 and "deep" in ex_genre:
+        score -= 0.3
+    elif 115 <= avg_bpm < 130 and ex_genre in ("house", "deep_house"):
+        score -= 0.2
+    elif avg_bpm >= 130 and "tech" in ex_genre:
+        score -= 0.2
+
+    # Technique / style matching
+    window_style = window.get("style", "blend")
+    ex_technique = m.get("technique", "blend")
+    ex_exit = m.get("exit_section", "groove")
+
+    # Reward technique match
+    if window_style == "drop_swap" and ex_technique == "drop_swap":
+        score -= 0.5
+    elif window_style == "cut" and ex_technique == "cut":
+        score -= 0.5
+    elif window_style == "blend" and ex_technique in ("blend", "loop_blend"):
+        score -= 0.2
+
+    # Camelot distance >=3 → cut examples become more relevant
+    actual_camelot_dist = _camelot_distance(t1_key, t2_key)
+    if actual_camelot_dist >= 3 and ex_technique == "cut":
+        score -= 0.4
+    if actual_camelot_dist <= 1 and ex_technique == "cut":
+        score += 0.5  # penalize cut examples for compatible keys
+
+    # Short track remaining → loop_blend examples become relevant
+    t1_bar_grid = getattr(t1, "bar_grid", None)
+    t1_bars = getattr(t1_bar_grid, "n_bars", None)
+    t1_exit = window.get("t1_exit_bar", 64)
+    if t1_bars is not None and (t1_bars - t1_exit) < 20 and ex_technique == "loop_blend":
+        score -= 0.4  # T1 has short outro → loop examples very relevant
+
+    # Exit section match
+    if window_style == "blend" and ex_exit in ("groove", "intro"):
+        score -= 0.1
+    elif window_style == "drop_swap" and ex_exit == "drop":
+        score -= 0.1
+
+    return score
+
+
+def retrieve_examples(
+    t1: TrackAnalysis,
+    t2: TrackAnalysis,
+    window: dict,
+    k: int = 2,
+) -> list[dict]:
+    """Return top-k most relevant examples for this transition."""
+    all_ex = _load_all_examples()
+    if not all_ex:
+        return []
+    scored = sorted(all_ex, key=lambda e: _score_example(e, t1, t2, window))
+    return scored[:k]
+
+
+def _format_examples_block(examples: list[dict]) -> str:
+    if not examples:
+        return ""
+    lines = ["SIMILAR TRANSITIONS FROM PROFESSIONAL DJ MIXES:\n"]
+    for ex in examples:
+        m = ex["meta"]
+        lines.append(
+            f"EXAMPLE: {m['t1_artist']} \"{m['t1_title']}\" → {m['t2_artist']} \"{m['t2_title']}\""
+        )
+        lines.append(
+            f"  {m['t1_camelot']}→{m['t2_camelot']} | {m['t1_bpm']}→{m['t2_bpm']} BPM "
+            f"(Δ{m['bpm_delta']:.1f}) | {m['genre']} | {m['exit_section']} exit | "
+            f"{m['overlap_bars']}-bar overlap | source: {m['source']}"
+        )
+        arc = ex.get("transition_arc", "")
+        if arc:
+            lines.append(f"  MUSICAL ARC: {arc}")
+        lines.append("  ANNOTATED ACTIONS:")
+        for ann in ex.get("annotated_actions", []):
+            a = ann["action"]
+            action_json = json.dumps(a, separators=(",", ":"))
+            lines.append(f"    {action_json}")
+            if "t1_state" in ann:
+                lines.append(f"      T1 at this moment: {ann['t1_state']}")
+            if "t2_state" in ann:
+                lines.append(f"      T2 at this moment: {ann['t2_state']}")
+            lines.append(f"      WHY: {ann['why']}")
+        lines.append("")
+    lines.append(
+        "IMPORTANT: Do NOT copy these bar numbers — they are from different tracks. "
+        "Study the MUSICAL ARC and WHY annotations to understand the decision logic, "
+        "then apply that logic to the zone data for the actual tracks below.\n"
+    )
+    return "\n".join(lines) + "\n"
 
 _TASK_PROMPT = """
 ---
@@ -388,6 +559,9 @@ def select_transition_window(
         window["style"]       = window.get("style", "blend")
         # Ensure t1_exit_bar is a phrase-multiple (multiple of 8)
         window["t1_exit_bar"] = (int(window["t1_exit_bar"]) // 8) * 8
+        # Clamp so there's always at least window_bars of audio left in T1
+        max_exit = ((t1.bar_grid.n_bars - window["window_bars"]) // 8) * 8
+        window["t1_exit_bar"] = min(window["t1_exit_bar"], max(0, max_exit))
         window["t2_enter_bar"] = max(0, int(window["t2_enter_bar"]))
         return window
     except Exception as exc:
@@ -609,8 +783,10 @@ def _format_plan_prompt(
     t1_table = _format_zone_table(t1_zone, "T1", "exit zone")
     t2_table = _format_zone_table(t2_zone, "T2", "entry zone")
 
-    zone_hints    = _compute_zone_hints(t1_zone, t2_zone)
-    vocal_warning = _vocal_warning(t1, t2, window)
+    zone_hints      = _compute_zone_hints(t1_zone, t2_zone)
+    vocal_warning   = _vocal_warning(t1, t2, window)
+    retrieved_exs   = retrieve_examples(t1, t2, window, k=3)
+    examples_block  = _format_examples_block(retrieved_exs)
 
     coord_note = (
         "COORDINATE SYSTEM: All bar values in your output must be LOCAL to each track's "
@@ -626,6 +802,7 @@ def _format_plan_prompt(
         f"style={window['style']}\n\n"
         f"{vocal_warning}"
         f"{zone_hints}"
+        f"{examples_block}"
         f"{t1_table}\n\n"
         f"{t2_table}\n\n"
         "Using the zone data above, output the mix script JSON now."

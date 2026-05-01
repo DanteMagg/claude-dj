@@ -409,8 +409,13 @@ If any check fails and cannot be resolved, default to a **short percussion-windo
 ### 7.3 Technical rules (binding)
 
 1. **`start_bar` must be a multiple of 8.** Mid-phrase loop points sound like a glitch regardless of content.
-2. **`loop_bars` must be 4 or 8.** 8-bar is the default for house/techno. 4-bar for D&B or tight builds.
-3. **`loop_repeats` 1–3.** One repeat = 8 bars of extension (standard). Two repeats = 16 bars (only for a planned outro extension). Three = only in peak techno with clear audience signal. Four is almost always too long.
+2. **`loop_bars` valid values by genre** (sourced: Pioneer DJ genre technique guide; Digital DJ Tips):
+   - Tech house: **1–2 bars** — short creates stutter/tension; common in peak-energy moments
+   - Techno: **2–4 bars** — 2-bar most common; sustains hypnotic character
+   - Deep house / prog house: **4–8 bars** — melodic loops need more space to breathe
+   - DnB: **8–16 bars** — entire transition is often loop-assisted; short loops are too choppy
+   - Ambient / deep melodic techno: **8–32 bars** — immersive; 64-bar blends documented
+3. **`loop_repeats` 1–3.** One repeat = standard. Two = extended outro work. Three = only at peak energy with clear audience signal. Beyond three eliminates the effect.
 4. **Post-loop source mechanics — understand this before writing actions:**
    After the loop, the track automatically resumes from source bar `start_bar + loop_bars * loop_repeats`.
    - **Fade-out (typical):** emit `fade_out` at `start_bar: (start_bar + loop_bars * loop_repeats)`. No play needed.
@@ -422,16 +427,17 @@ If any check fails and cannot be resolved, default to a **short percussion-windo
 
 ### 7.4 Use by genre
 
-| Genre | Primary use | Preferred config |
-|---|---|---|
-| Deep house | Extend short outro for long blend | 8 bars × 1–2 repeats |
-| Tech house | Hold peak drop phrase | 8 bars × 1 repeat |
-| Progressive house | Pre-drop tension | 8 bars × 1 repeat |
-| Techno | Extend outro drum section | 8 bars × 1–3 repeats |
-| Uplifting trance | Pre-drop tension only | 8 bars × 1 repeat |
-| Psytrance | Emergency extension only | 4 bars × 1 repeat |
-| EDM/big room | Pre-drop 4-bar hold | 4 bars × 1 repeat |
-| D&B | Emergency only (short outro) | 4 bars × 1 repeat |
+| Genre | Primary use | Preferred config | Source |
+|---|---|---|---|
+| Deep house | Extend short outro for long blend | 8 bars × 1–2 repeats | Pioneer DJ |
+| Tech house | Stutter/tension effect or drum bridge | 1–2 bars × 2–4 repeats | Pioneer DJ genre guide |
+| Progressive house | Atmospheric sustain during blend | 4–8 bars × 1–2 repeats | Crossfader |
+| Techno | Sustain hypnotic section | 2–4 bars × 1–3 repeats | Pioneer DJ genre guide |
+| Uplifting trance | Pre-drop tension only | 8 bars × 1 repeat | Digital DJ Tips |
+| Psytrance | Emergency extension only | 4 bars × 1 repeat | — |
+| EDM/big room | Pre-drop 4-bar hold | 4 bars × 1 repeat | — |
+| D&B | Loop-assisted transition (standard) | 8–16 bars × 1–2 repeats | Pioneer DJ |
+| Ambient/melodic techno | Immersive extended blend | 8–32 bars × 1 repeat | Mixgraph |
 
 ### 7.5 The short-outro problem — canonical loop fix
 
@@ -447,301 +453,18 @@ Some tracks have abrupt endings: 8 bars of drums, then a fast fade. Standard pro
 
 ## 8. PROFESSIONAL MIX EXAMPLES
 
-These are canonical action sequences for common scenarios. Use them as structural templates.
-
-### 8.1 Standard tech house transition (16-bar blend, same key)
-
-**Situation:** T1 is in its outro (drums + bass, no vocals). T2 starts at its intro (drums only, 16 bars). Same key. 16-bar overlap is correct for tech house.
-
-```json
-[
-  {"type": "play",      "track": "T1", "at_bar": 0,  "from_bar": 0},
-  {"type": "fade_in",   "track": "T2", "start_bar": 64, "duration_bars": 16, "from_bar": 0,
-   "stems": {"drums": 0.8, "bass": 0.0, "vocals": 0.0, "other": 0.6}},
-  {"type": "bass_swap", "track": "T1", "at_bar": 72, "incoming_track": "T2"},
-  {"type": "play",      "track": "T2", "at_bar": 80, "from_bar": 16},
-  {"type": "fade_out",  "track": "T1", "start_bar": 80, "duration_bars": 16}
-]
-```
-
-Bass held at 0.0 on T2 until the swap at bar 72 (halfway through the 16-bar overlap, on a phrase boundary). T1 fades over the 16 bars after T2 is already at full volume.
-
----
-
-### 8.2 Deep house long blend with loop extension (outgoing has short outro)
-
-**Situation:** T1 has only 8 bars of clean percussion before track ends. Need a 32-bar blend. Loop T1's percussion phrase twice for 16 bars of runway, then blend inside it.
-
-```json
-[
-  {"type": "play",      "track": "T1", "at_bar": 0,  "from_bar": 0},
-  {"type": "loop",      "track": "T1", "start_bar": 80, "loop_bars": 8, "loop_repeats": 2},
-  {"type": "fade_in",   "track": "T2", "start_bar": 88, "duration_bars": 32, "from_bar": 0,
-   "stems": {"drums": 0.6, "bass": 0.0, "vocals": 0.0, "other": 0.5}},
-  {"type": "bass_swap", "track": "T1", "at_bar": 96, "incoming_track": "T2"},
-  {"type": "fade_out",  "track": "T1", "start_bar": 96, "duration_bars": 24},
-  {"type": "play",      "track": "T2", "at_bar": 120, "from_bar": 32}
-]
-```
-
-Loop fires at bar 80 (last clean drum phrase), giving 16 bars of runway (bars 80–96). Fade_in starts at bar 88 — 8 bars into the loop, so T1 is already stable. Bass swap at bar 96 (phrase boundary, 8 bars into the 32-bar blend). Loop ends naturally at bar 96; fade_out takes T1 the rest of the way.
-
----
-
-### 8.3 Short cut — harmonically incompatible tracks, percussion-window only
-
-**Situation:** T1 and T2 are more than ±2 apart on the Camelot wheel. T1 has a 16-bar drum-only window in its outro. Only drums on T2 fade_in; no melodic elements introduced during overlap.
-
-```json
-[
-  {"type": "play",      "track": "T1", "at_bar": 0,  "from_bar": 0},
-  {"type": "fade_in",   "track": "T2", "start_bar": 56, "duration_bars": 8, "from_bar": 0,
-   "stems": {"drums": 1.0, "bass": 0.0, "vocals": 0.0, "other": 0.0}},
-  {"type": "bass_swap", "track": "T1", "at_bar": 64, "incoming_track": "T2"},
-  {"type": "play",      "track": "T2", "at_bar": 64, "from_bar": 8},
-  {"type": "fade_out",  "track": "T1", "start_bar": 56, "duration_bars": 16}
-]
-```
-
-8-bar blend only — just long enough to establish T2's kick before the swap. `other: 0.0` and `bass: 0.0` on fade_in ensures zero harmonic content introduced during the clash window. Bass swap and T2 full-play fire on the same downbeat (bar 64) for a clean cut.
-
-### 8.4 Progressive house structural blend (32-bar)
-
-**Situation:** T1 is in its outro (elements stripping every 8 bars). T2's intro mirrors the process in reverse (elements adding every 8 bars). Aligned, they form a continuous composition. Same key.
-
-```json
-[
-  {"type": "play",      "track": "T1", "at_bar": 0,  "from_bar": 0},
-  {"type": "fade_in",   "track": "T2", "start_bar": 80, "duration_bars": 32, "from_bar": 0,
-   "stems": {"drums": 0.5, "bass": 0.0, "vocals": 0.0, "other": 0.4}},
-  {"type": "eq",        "track": "T1", "bar": 80, "low": 1.0, "mid": 0.8, "high": 1.0},
-  {"type": "bass_swap", "track": "T1", "at_bar": 88},
-  {"type": "eq",        "track": "T1", "bar": 96, "low": 0.0, "mid": 0.6, "high": 0.8},
-  {"type": "play",      "track": "T2", "at_bar": 112, "from_bar": 32},
-  {"type": "fade_out",  "track": "T1", "start_bar": 96, "duration_bars": 16}
-]
-```
-
-T1's outro strips elements while T2's intro adds them; the 32-bar window gives both arcs room to breathe. Bass swap at bar 88 (8 bars in, first phrase boundary). Mid/high EQ on T1 rolls off progressively from bar 96 onward.
-
----
-
-### 8.5 Filter sweep -- key-incompatible tracks
-
-**Situation:** T1 and T2 are >2 steps apart on Camelot. Use frequency-domain separation: T1 exits on low-pass (bass/kick only), T2 enters on high-pass (hats/highs only), then both filters remove and T2 is full-frequency. No harmonic content overlaps during the swap.
-
-```json
-[
-  {"type": "play",      "track": "T1", "at_bar": 0,  "from_bar": 0},
-  {"type": "fade_in",   "track": "T2", "start_bar": 64, "duration_bars": 8, "from_bar": 0,
-   "stems": {"drums": 0.9, "bass": 0.0, "vocals": 0.0, "other": 0.0}},
-  {"type": "eq",        "track": "T1", "bar": 64, "low": 1.0, "mid": 0.3, "high": 0.2},
-  {"type": "bass_swap", "track": "T1", "at_bar": 72},
-  {"type": "play",      "track": "T2", "at_bar": 72, "from_bar": 8},
-  {"type": "fade_out",  "track": "T1", "start_bar": 64, "duration_bars": 16}
-]
-```
-
-T1's mid and high EQ are killed at bar 64, leaving only its kick/sub. T2's `other:0.0` and `bass:0.0` mean only its hats come through. The two tracks occupy non-overlapping frequency bands for the 8-bar window -- zero harmonic clash. Bass swap at bar 72 clears T1's sub and T2 goes full-frequency.
-
----
-
-### 8.6 Breakdown swap -- T1 breakdown as transition runway
-
-**Situation:** T1 has a 16-bar breakdown (kick removed, melody sparse). Use it as the transition runway: T2's intro enters during T1's quiet breakdown, then T1 is killed just before it would re-drop, giving T2's drop to the crowd.
-
-```json
-[
-  {"type": "play",      "track": "T1", "at_bar": 0,  "from_bar": 0},
-  {"type": "fade_in",   "track": "T2", "start_bar": 56, "duration_bars": 16, "from_bar": 0,
-   "stems": {"drums": 0.6, "bass": 0.0, "vocals": 0.0, "other": 0.3}},
-  {"type": "bass_swap", "track": "T1", "at_bar": 64},
-  {"type": "play",      "track": "T2", "at_bar": 72, "from_bar": 16},
-  {"type": "fade_out",  "track": "T1", "start_bar": 64, "duration_bars": 8}
-]
-```
-
-T2 enters quietly at bar 56 during T1's breakdown. Bass swap at bar 64 (start of what would be T1's re-drop). T1 fades fully by bar 72 -- the crowd gets T2's drop as the release moment instead. T2 `play` at bar 72 `from_bar: 16` picks up at T2's first drop.
-
----
-
-### 8.7 Echo-out -- hard key change with FX bridge
-
-**Situation:** T1 and T2 are harmonically incompatible. Use echo-out: T1 exits on a reverb/delay tail that masks the key change, T2 enters underneath it.
-
-```json
-[
-  {"type": "play",      "track": "T1", "at_bar": 0,  "from_bar": 0},
-  {"type": "fade_out",  "track": "T1", "start_bar": 64, "duration_bars": 8},
-  {"type": "fade_in",   "track": "T2", "start_bar": 68, "duration_bars": 8, "from_bar": 0,
-   "stems": {"drums": 0.5, "bass": 0.0, "vocals": 0.0, "other": 0.3}},
-  {"type": "bass_swap", "track": "T1", "at_bar": 72},
-  {"type": "play",      "track": "T2", "at_bar": 76, "from_bar": 8}
-]
-```
-
-T1 begins fading at bar 64 (fast 8-bar fade). T2 fades in 4 bars later at bar 68, while T1's tail is still decaying. Bass swap clears T1's residual low end at bar 72. T2 at full volume from bar 76. The 4-bar offset means T1 is mostly gone before T2's melody becomes audible.
-
----
-
-### 8.8 Vocal house → instrumental (mid-kill before vocal entry)
-
-**Situation:** T1 has active vocals in its outro/final chorus. T2 is instrumental. Must kill T1's mids before T2's groove becomes audible — otherwise two pitched layers compete in the 500–2000 Hz range.
-
-```json
-[
-  {"type": "play",      "track": "T1", "at_bar": 0,  "from_bar": 0},
-  {"type": "fade_in",   "track": "T2", "start_bar": 72, "duration_bars": 16, "from_bar": 0,
-   "stems": {"drums": 0.7, "bass": 0.0, "vocals": 0.0, "other": 0.3}},
-  {"type": "eq",        "track": "T1", "bar": 72, "low": 1.0, "mid": 0.3, "high": 0.9},
-  {"type": "bass_swap", "track": "T1", "at_bar": 80, "incoming_track": "T2"},
-  {"type": "play",      "track": "T2", "at_bar": 88, "from_bar": 16},
-  {"type": "fade_out",  "track": "T1", "start_bar": 80, "duration_bars": 16}
-]
-```
-
-T1 mid EQ cut to 0.3 (≈−9 dB) fires at the same bar T2 starts fading in — T1's vocal recedes before T2's other/pad layer is audible. T2 `stems: other: 0.3` intentionally low during the fade window so T2's harmonic content isn't competing. Bass swap at bar 80 (8-bar mark, phrase boundary). Once T2's full groove fires at bar 88, T1's already mid-cut and fading. T1's `vocals` are gone before T2's groove is at full volume.
-
----
-
-### 8.9 Techno 64-bar texture blend (atmospherics-first, kick swap mid-blend)
-
-**Situation:** Both tracks are sparse hypnotic/melodic techno, same or adjacent key. Genre permits a 64-bar overlap. Phase 1: T2's atmospherics bleed in while T1's kick holds the floor. Phase 2: hard kick/bass swap at the 32-bar mark. Phase 3: T1's synths fade as T2's groove establishes.
-
-```json
-[
-  {"type": "play",      "track": "T1", "at_bar": 0,  "from_bar": 0},
-  {"type": "fade_in",   "track": "T2", "start_bar": 64, "duration_bars": 32, "from_bar": 0,
-   "stems": {"drums": 0.0, "bass": 0.0, "vocals": 0.0, "other": 0.8}},
-  {"type": "eq",        "track": "T1", "bar": 80, "low": 1.0, "mid": 0.7, "high": 0.9},
-  {"type": "bass_swap", "track": "T1", "at_bar": 96, "incoming_track": "T2"},
-  {"type": "play",      "track": "T2", "at_bar": 96, "from_bar": 32},
-  {"type": "fade_out",  "track": "T1", "start_bar": 96, "duration_bars": 32}
-]
-```
-
-T2 enters at bar 64 with atmospherics only (`drums: 0.0`) — T1's kick carries the pulse uninterrupted. T1 mid EQ rolls to 0.7 at bar 80 (16 bars in) as T2's synths establish. Hard bass+kick swap at bar 96 (32-bar mark, phrase boundary): T2's full kit and bass take over. T1 fades over the next 32 bars. Total blend: 64 bars. Kick was never doubled.
-
----
-
-### 8.10 D&B 8-bar precision drop-swap
-
-**Situation:** T1 is D&B nearing its outro/break. T2 is cued near its drop (from_bar=48 = 8 bars before T2's drop at bar 56). Bring T2's drums in during T1's break; bass swap fires exactly when T2's drop hits. High BPM means 8 bars is enough — long blends get cluttered.
-
-```json
-[
-  {"type": "play",      "track": "T1", "at_bar": 0,  "from_bar": 0},
-  {"type": "fade_in",   "track": "T2", "start_bar": 56, "duration_bars": 8, "from_bar": 48,
-   "stems": {"drums": 0.7, "bass": 0.0, "vocals": 0.0, "other": 0.0}},
-  {"type": "bass_swap", "track": "T1", "at_bar": 64, "incoming_track": "T2"},
-  {"type": "play",      "track": "T2", "at_bar": 64, "from_bar": 56},
-  {"type": "fade_out",  "track": "T1", "start_bar": 56, "duration_bars": 16}
-]
-```
-
-`from_bar: 48` cues T2 8 bars before its drop so the fade window is the lead-in, not the drop itself. Drums-only fade (`other: 0.0`) — no harmonic content during the handover. Bass swap at bar 64 (T2's drop entry) — the crowd gets T2's sub and full breakbeat as the release moment. T1 fades hard over 16 bars. No melodic overlap.
-
----
-
-### 8.11 Deliberate −2 energy reset via breakdown bridge
-
-**Situation:** T1 energy=8 (peak). T2 energy=6 (mid-set groove). A raw drop from 8 to 6 reads as "the energy died." Instead: use T1's breakdown as the emotional descent; the crowd has already felt the energy drop before T2's calmer intro begins, so T2 feels like continuation rather than a cliff. EQ T1 down into the breakdown to signal the shift early.
-
-```json
-[
-  {"type": "play",      "track": "T1", "at_bar": 0,  "from_bar": 0},
-  {"type": "eq",        "track": "T1", "bar": 48, "low": 0.5, "mid": 0.7, "high": 0.8},
-  {"type": "fade_in",   "track": "T2", "start_bar": 56, "duration_bars": 32, "from_bar": 0,
-   "stems": {"drums": 0.5, "bass": 0.0, "vocals": 0.0, "other": 0.4}},
-  {"type": "bass_swap", "track": "T1", "at_bar": 72, "incoming_track": "T2"},
-  {"type": "play",      "track": "T2", "at_bar": 88, "from_bar": 32},
-  {"type": "fade_out",  "track": "T1", "start_bar": 64, "duration_bars": 24}
-]
-```
-
-T1 EQ at bar 48 begins the EQ descent 8 bars *before* T2 enters — the sub-bass trim (low=0.5) signals the crowd the energy is ebbing. T2's intro (`other: 0.4`) is intentionally quiet during the 32-bar blend. Bass swap at bar 72 (midpoint of blend). T1 fade_out starts at bar 64 and runs 24 bars. By bar 88 when T2 plays at full, the crowd has accepted the lower energy state via T1's own breakdown arc.
-
----
-
-### 8.12 BPM jump bridged by loop (>5 BPM gap, breakdown window)
-
-**Situation:** T1 is 134 BPM, T2 is 126 BPM (8 BPM gap). Perform the tempo shift inside a kick-free loop window — absence of kick makes tempo differences imperceptible. Loop T1's sparse breakdown phrase, bring T2 in during the loop.
-
-```json
-[
-  {"type": "play",      "track": "T1", "at_bar": 0,  "from_bar": 0},
-  {"type": "loop",      "track": "T1", "start_bar": 64, "loop_bars": 8, "loop_repeats": 2},
-  {"type": "fade_in",   "track": "T2", "start_bar": 72, "duration_bars": 16, "from_bar": 0,
-   "stems": {"drums": 0.5, "bass": 0.0, "vocals": 0.0, "other": 0.6}},
-  {"type": "bass_swap", "track": "T1", "at_bar": 80, "incoming_track": "T2"},
-  {"type": "fade_out",  "track": "T1", "start_bar": 80, "duration_bars": 16},
-  {"type": "play",      "track": "T2", "at_bar": 88, "from_bar": 16}
-]
-```
-
-Loop fires at bar 64 on T1's sparse breakdown (no kick). The 16-bar loop window (bars 64–80) is the tempo-transition zone: kick-free music has no rhythmic anchor to expose the BPM mismatch. T2 starts fading in at bar 72 (8 bars into the loop). Bass swap at bar 80 closes the loop and transfers energy to T2. T1 fades over bars 80–96. T2 plays its full groove from bar 88. The loop phase does the perceptual work that an abrupt BPM jump cannot.
-
----
-
-### 8.13 Psytrance clean bass swap during break (catastrophe prevention)
-
-**Situation:** Both tracks are psytrance with rolling 1/16-note basslines. Overlapping basslines is the worst-sounding outcome in this genre — instant phasing mess. The ONLY safe window is T1's 16-bar break. Bass swap must fire before T1's bassline resumes; T2's bass must not exist until the swap is complete.
-
-```json
-[
-  {"type": "play",      "track": "T1", "at_bar": 0,  "from_bar": 0},
-  {"type": "fade_in",   "track": "T2", "start_bar": 64, "duration_bars": 8, "from_bar": 0,
-   "stems": {"drums": 0.5, "bass": 0.0, "vocals": 0.0, "other": 0.7}},
-  {"type": "bass_swap", "track": "T1", "at_bar": 64, "incoming_track": "T2"},
-  {"type": "play",      "track": "T2", "at_bar": 72, "from_bar": 8},
-  {"type": "fade_out",  "track": "T1", "start_bar": 64, "duration_bars": 8}
-]
-```
-
-T1's break starts at bar 64 (bassline and kick stop). Bass swap fires immediately at bar 64 — the downbeat of the break. T2's `bass: 0.0` in fade_in means zero low-end until the swap fires and T2 plays at bar 72. T1 fades hard over 8 bars. The crossover happens entirely inside the break; T1's next bassline cycle never begins. Two rolling basslines never coexist for even 1 bar.
-
----
-
-### 8.14 Progressive trance breakdown-to-breakdown (same key, 48-bar atmospheric blend)
-
-**Situation:** T1 is in its extended breakdown (drumless, melody + pads only). T2 is queued to its own breakdown start. Same key. This is the longest blend type — the melodic arcs of both tracks interweave before T2's drop gives the emotional release. Only valid with same key or ±1 Camelot.
-
-```json
-[
-  {"type": "play",      "track": "T1", "at_bar": 0,  "from_bar": 0},
-  {"type": "fade_in",   "track": "T2", "start_bar": 64, "duration_bars": 48, "from_bar": 0,
-   "stems": {"drums": 0.0, "bass": 0.0, "vocals": 0.0, "other": 0.8}},
-  {"type": "eq",        "track": "T1", "bar": 80, "low": 1.0, "mid": 0.7, "high": 0.9},
-  {"type": "eq",        "track": "T1", "bar": 96, "low": 0.0, "mid": 0.5, "high": 0.7},
-  {"type": "bass_swap", "track": "T1", "at_bar": 96, "incoming_track": "T2"},
-  {"type": "play",      "track": "T2", "at_bar": 112, "from_bar": 48},
-  {"type": "fade_out",  "track": "T1", "start_bar": 88, "duration_bars": 32}
-]
-```
-
-`drums: 0.0` and `bass: 0.0` on T2's fade_in ensures only T2's melodic/pad layer enters — no kick or bassline for the first 48 bars. T1's mid EQ rolls off in two stages (bar 80 → 0.7, bar 96 → 0.5) while T2's pads establish. Bass swap at bar 96 (32-bar mark) clears T1's sub. T1 fade_out runs from bar 88 to 120 — the long tail lets the melodic cross-fade feel organic. T2's drop arrives at bar 112. Both tracks had zero drums for the 48-bar blend window.
-
----
-
-### 8.15 Emergency short-outro cut (no loop, 4–8 bars of clean material only)
-
-**Situation:** T1 has no usable outro — 8 bars of clean drums then the track ends. Cannot loop (harmonic content makes the repeat obvious). Kill T1's mids/highs immediately, bring T2 in with drums only, cut on the downbeat. This is the damage-limitation path from §3.6.
-
-```json
-[
-  {"type": "play",      "track": "T1", "at_bar": 0,  "from_bar": 0},
-  {"type": "eq",        "track": "T1", "bar": 60, "low": 1.0, "mid": 0.2, "high": 0.4},
-  {"type": "fade_in",   "track": "T2", "start_bar": 60, "duration_bars": 8, "from_bar": 0,
-   "stems": {"drums": 1.0, "bass": 0.0, "vocals": 0.0, "other": 0.0}},
-  {"type": "bass_swap", "track": "T1", "at_bar": 64, "incoming_track": "T2"},
-  {"type": "play",      "track": "T2", "at_bar": 68, "from_bar": 8},
-  {"type": "fade_out",  "track": "T1", "start_bar": 60, "duration_bars": 8}
-]
-```
-
-T1 mid/high EQ killed at bar 60 (leaving only sub and kick). T2 enters with drums only (`other: 0.0`, `bass: 0.0`) — zero harmonic overlap during the 8-bar window. Bass swap at bar 64 clears T1's low-end. T2's full groove fires at bar 68. T1 fades out by bar 68. The move is percussive, decisive, and takes only 8 bars. Use this when T1's track structure gives no better option; do not reach for it when a proper outro or loop is available.
-
----
+Examples are retrieved dynamically at runtime based on the current transition context (key, BPM, genre, exit section). The 2–3 closest real-world examples from professional DJ mixes are injected directly into the planning prompt as "SIMILAR TRANSITIONS". Do not look for static examples here — they will appear above the zone tables in the prompt.
+
+The key structural patterns to internalize from those examples:
+
+- **ALWAYS emit `eq(T1, bar=fade_in.start_bar - 8, low=0.0)`** — cut T1's bass 8 bars BEFORE T2 enters. This is persistent (holds until end of track). Without this, T1's bass bleeds through the entire fade window.
+- **Always fade_in T2 with `bass: 0.0`** for the first 8–16 bars. Bass swap is explicit.
+- **bass_swap fires at the midpoint** of the fade window (fade_in.start_bar + overlap/2).
+- **play T2 at fade_in.start_bar + overlap**, from_bar = fade_in.from_bar + overlap.
+- **fade_out T1 starts at the same bar as fade_in T2 starts** (they are simultaneous).
+- **T1 from_bar** is often 8–32 to skip a sparse intro; T2 from_bar skips T2's silent lead-in.
+- **overlap_bars = 16** is the default for house/deep house blends; 8 for cuts, 24–32 for long blends.
+- **Camelot ±1 moves**: A→A+1, A→B (relative), B→A (relative minor) are all safe. Same key allows earlier harmonic blending.
 
 ## 9. AUDIO FEATURE-BASED SECTION DETECTION
 
@@ -997,12 +720,372 @@ Use breakdown of one track as the tempo-adjustment window. Slow pitch fader duri
 
 ---
 
+## 14. ACTION REFERENCE — COMPLETE TOOL GUIDE WITH ZONE-DATA TRIGGERS
+
+This section defines every action type, its exact acoustic effect, and the specific zone-data conditions that should trigger its use. **Read this before writing any action.**
+
+---
+
+### 14.1 `play`
+
+**What it does:** Starts the track's full audio mix (all stems summed) at a given mix bar, beginning from a given source bar.
+
+**Schema:**
+```json
+{"type": "play", "track": "T1", "at_bar": 0, "from_bar": 0}
+```
+
+- `at_bar`: global mix bar where audio begins playing
+- `from_bar`: source bar in the track to start from (skips intro silence when from_bar > 0)
+
+**Key rules:**
+- For T1 in a sub-script, the initial `play` action (`at_bar: 0`) is filtered out by the system (T1 is already playing). Only include it for the opening track.
+- For T2, `play` fires at `fade_in.start_bar + duration_bars` — it replaces the stem-layered fade_in with the full mix. `from_bar` = `fade_in.from_bar + duration_bars`.
+- **When to skip from_bar=0:** If the track has >8 bars of near-silence or sparse percussion before the groove, set `from_bar` to skip it. Zone data will show `drums < 0.2, harmonic < 0.1, rms < 0.1` in those bars.
+
+---
+
+### 14.2 `fade_out`
+
+**What it does:** Applies a linear gain ramp from 1.0→0.0 over `duration_bars` starting at `start_bar`. The track is **completely silent** from `start_bar + duration_bars` onward.
+
+**Schema:**
+```json
+{"type": "fade_out", "track": "T1", "start_bar": 72, "duration_bars": 16}
+```
+
+**Zone-data triggers:**
+- **Ideal `start_bar`:** The bar where T1's zone shows `rms` dropping below 0.35, or where section label transitions to `[OUTRO]` or `[BREAKDOWN]`.
+- **`start_bar` must be T1-local** (relative to T1's first downbeat bar 0), NOT a global mix bar.
+- **`duration_bars`:** 16 is standard for house/deep house. 8 for urgent cuts. 24–32 for slow prog/trance blends. Shorter = more audible; longer = smoother.
+
+**Critical:** `start_bar` + `duration_bars` must not exceed T1's `bar_grid.n_bars`. The system clamps this, but choosing a valid value avoids the clamp logging.
+
+**`fade_out` is MANDATORY for every non-final track.** If missing, the normalizer injects one at +16 bars after the last play, but it will sound wrong. Always emit it explicitly.
+
+---
+
+### 14.3 `fade_in`
+
+**What it does:** Brings T2 into the mix over `duration_bars` with per-stem volume control. This is the **primary tool for controlling harmonic density** during the overlap window.
+
+**Schema:**
+```json
+{
+  "type": "fade_in",
+  "track": "T2",
+  "start_bar": 72,
+  "duration_bars": 16,
+  "from_bar": 8,
+  "stems": {"drums": 0.8, "bass": 0.0, "vocals": 0.0, "other": 0.6}
+}
+```
+
+**Stem value decisions — use zone data:**
+
+| Stem | When to open (>0) | When to hold shut (=0) | Zone signal |
+|---|---|---|---|
+| `drums` | Always at 0.7–0.9 during intro overlap | Never 0 unless T2 is purely harmonic | T2 zone: drums > 0.2 = open, drums < 0.1 = hold |
+| `bass` | **NEVER during fade_in** — use bass_swap instead | Hold at 0.0 until bass_swap fires | T1 bass still active → T2 bass must be 0.0 |
+| `vocals` | Only if T1 has NO vocals and T2 vocal is quiet | Hold at 0 when T1 has vocals too | T1 zone: vocals.presence >= 5 = hold T2 vocals |
+| `other` | Same-key or ±1 Camelot: 0.5–0.7 from start; ±2: 0.3; ±3: 0.0–0.1 | Incompatible keys = 0 | Camelot distance determines safe level |
+
+**from_bar selection:**
+- Set to the first T2 bar where `drums > 0.15` OR `harmonic > 0.1` in T2 zone data.
+- Bars before that are near-silence and waste the fade window — skip them.
+
+---
+
+### 14.4 `bass_swap`
+
+**What it does:** Removes T1's bass stem from the mix and releases T2's bass stem (which was held at 0.0 during fade_in). This is an instantaneous cut at a single bar — not a crossfade.
+
+**Schema:**
+```json
+{"type": "bass_swap", "track": "T1", "at_bar": 80, "incoming_track": "T2"}
+```
+
+**Frequency reference** (sourced: Pioneer DJ hardware docs + Mixgraph bass management guide):
+- Sub-bass territory: ~35 Hz — absolute mono on all club PA systems; never two tracks simultaneously
+- Kick fundamental: ~60 Hz — this is what makes low EQ overlap audible as "mud"
+- Mono crossover: 80–100 Hz — club subwoofer arrays sum to mono below this; stereo separation is lost
+- DJ mixer LOW EQ center: ~200 Hz on Pioneer DJM-series and Allen & Heath mixers
+- HPF entry point for progressive bass introduction: 200–400 Hz
+
+**Three documented variants** (sourced: Pioneer DJ YouTube tutorial series):
+
+**Variant 1 — Simultaneous swap** (default for tech house / techno):
+T1 eq cut to low=0.0 well before blend → at exact phrase downbeat, cut T2's eq hold and raise T2 low simultaneously. Simultaneity is critical — even 2 beats of overlap is audible. This is what `eq(T1, low=0.0, bar=fade_in.start_bar - 8)` + `bass_swap` implements.
+
+**Variant 2 — Outgoing first** (safer for house / melodic transitions):
+Cut T1 bass first. Hold 4 bars with no sub at all (kick mids still from T1, no sub). Then release T2 bass. The bass-free window sounds slightly hollow but prevents any overlap.
+
+**Variant 3 — Gradual crossfade** (situational, only when both tracks have matching kick/sub weight):
+Ride T2 bass up from 0 over 4–8 bars while riding T1 bass down. Only works when both tracks are similar in mix weight — any mismatch creates audible doubling. Do NOT use by default; prefer Variant 1.
+
+**Position rule** (from empirical dataset, ISMIR 2020 — 32-beat phrase grid dominates):
+Bass swap **must land on the downbeat of a bar** — never mid-bar. Standard positions:
+
+| Overlap length | Swap position |
+|---|---|
+| 8-bar overlap | Bar 5 (60% through) or bar 1 of next 8-bar phrase |
+| 16-bar overlap | Bar 9 (midpoint) — default |
+| 32-bar overlap | Bar 17 (midpoint) |
+
+**MANDATORY on every blend and drop_swap transition.** Only skippable on a hard cut where both tracks' bass is already silent.
+
+---
+
+### 14.5 `eq`
+
+**What it does:** Sets frequency band volumes for a track at a specific bar. Useful for reducing harmonic clutter during overlaps.
+
+**Schema:**
+```json
+{"type": "eq", "track": "T1", "bar": 72, "low": 1.0, "mid": 0.6, "high": 1.0}
+```
+
+- `low` (bass/sub): 0.0–1.0. Never set both T1 and T2 low > 0.5 simultaneously.
+- `mid` (vocals/instruments): Attenuate T1 mids when T1 has vocals overlapping T2 entry.
+- `high` (hi-hats/air): Rarely touched; use for energy sculpting only.
+
+**EQ is PERSISTENT** — once you set `eq(T1, bar=X, low=0.0)`, that EQ holds from bar X to end of track. This is how real DJ mixer EQ knobs work. The executor sustains the setting; you do not need to "restore" it.
+
+**Standard procedure — ALWAYS emit this on every blend transition:**
+```json
+{"type": "eq", "track": "T1", "bar": <fade_in.start_bar - 8>, "low": 0.0, "mid": 1.0, "high": 1.0}
+```
+Cut T1's bass **8 bars before** T2 fades in. This prevents T1 bass from bleeding through the overlap window. The bass_swap at the midpoint then handles T2's bass release formally.
+
+**Zone-data triggers for additional EQ:**
+- T1 has `vocals.presence >= 5` at the exit bar → also add `mid: 0.5` to the T1 eq action
+- Incompatible key (±3+) → `eq(T2, bar=fade_in.start_bar, low=0.0, mid=0.4)` to suppress harmonic clash
+- Same key / ±1 Camelot → can allow `low=0.5` on T1 eq (softer cut, preserves warmth)
+
+---
+
+### 14.6 `loop` — DEEP GUIDE
+
+**What it does mechanically:** Takes a `loop_bars`-bar phrase starting at `start_bar` in T1's source, repeats it `loop_repeats` times, **mutes the original track content** under the loop window (by default), then resumes the track at `start_bar + loop_bars * loop_repeats`.
+
+**Full schema:**
+```json
+{
+  "type": "loop",
+  "track": "T1",
+  "start_bar": 64,
+  "loop_bars": 8,
+  "loop_repeats": 2,
+  "loop_mute_tail": true
+}
+```
+
+- `start_bar`: T1-local bar where the loop phrase begins. **Must be a multiple of 8.**
+- `loop_bars`: Length of the looped phrase. **Must be 4 or 8.** 8-bar is standard house.
+- `loop_repeats`: How many times the phrase plays (1 = one extra copy = 8 added bars). Max 3.
+- `loop_mute_tail`: Default `true`. Silences the original track under the loop window so no doubling occurs. Set `false` only if you want the original playing beneath the loop (rare).
+
+**Critical mechanic — the resume point:**
+After `loop_repeats` copies, the track resumes from source bar `start_bar + loop_bars * loop_repeats`. This means:
+- If T1's loop is `start_bar: 64, loop_bars: 8, loop_repeats: 2`, the track resumes from source bar 80 at mix bar `(start_bar_global + 16)`.
+- **Your fade_out must account for this.** Set `fade_out.start_bar` = the resumed source bar position (not the loop start).
+- **Do NOT emit a `play` for T1 after the loop** — the track resumes automatically.
+
+**Three acoustic effects and their zone triggers:**
+
+**Effect 1 — Outro extension (most common)**
+*When:* T1's zone shows the groove ending abruptly: `rms` drops from 0.4 to 0.1 within 8 bars, and there's fewer than 16 bars of clean low-energy material before the track ends.
+*How:* Find the last 8-bar drum-only phrase before energy drops. Loop it to create runway.
+
+```
+Zone: T1 bar 64-71: drums=0.4, harmonic=0.0, rms=0.2 (percussion-only, no bass = clean loop point)
+      T1 bar 72+: rms < 0.1 (track about to end)
+Action: loop(T1, start_bar=64, loop_bars=8, loop_repeats=2)
+        → 16 extra bars of clean drum texture for T2 to blend into
+        fade_in(T2, start_bar=64, duration_bars=16, ...)
+        bass_swap(T1, at_bar=72)
+        fade_out(T1, start_bar=80, duration_bars=8)  ← resumes from bar 80 after loop
+```
+
+**Effect 2 — Peak hold (drop extension)**
+*When:* T1 has just hit a DROP section (rms > 0.7, drums > 0.7) and the floor is responding. You want to extend this energy state before transitioning.
+*How:* Loop the first 8 bars of the drop phrase for 1–2 repeats. Then transition T2 in over the loop.
+
+```
+Zone: T1 bar 56-63: section=[DROP], drums=0.85, harmonic=0.7, rms=0.80
+Action: loop(T1, start_bar=56, loop_bars=8, loop_repeats=1)
+        → 8 extra bars of drop energy (crowd extended at peak)
+        After loop ends (bar 64), begin T2 fade_in or cut
+```
+
+**Effect 3 — Pre-drop tension (buildup extension)**
+*When:* T1 has a buildup section ending (increasing rms, onsets rising) and you want to amplify the tension before T2's drop lands. Zone shows `rms` rising 0.2→0.5 with dense onsets.
+*How:* Loop the last 8 bars of the build (1 repeat only). T2's drop fires immediately after the loop ends — the held tension makes the release hit harder.
+
+```
+Zone: T1 bar 48-55: section=[BUILD], onsets rising, drums=0.7, rms=0.50
+      T2 bar 0: section=[DROP], rms=0.75 (T2 opens with a drop)
+Action: loop(T1, start_bar=48, loop_bars=8, loop_repeats=1)
+        play(T2, at_bar=<loop_end_bar>, from_bar=0)  ← T2 drop fires right after
+```
+
+**NEVER use loop when:**
+- The phrase contains a chord progression or melodic motif (will sound like a skip)
+- The phrase has vocals (immediately perceived as a technical error)
+- You've used a loop on the previous transition
+- The track is in its main groove body (unless explicitly peak-holding)
+- `start_bar` is not a multiple of 8
+
+---
+
+### 14.7 CUT TRANSITIONS — when to skip fade entirely
+
+**What it is:** An immediate full-mix switch from T1 to T2 with no overlap. T1 stops; T2 starts on the same bar.
+
+**When to use:**
+1. **Incompatible keys (±3+ Camelot distance):** Any harmonic overlap will sound dissonant. A clean cut is less jarring than a clashing blend.
+2. **Matching drops:** T1 drop ends on beat 1 of a 4-bar phrase; T2 drop starts on the same bar. The energy matches exactly — no need for a fade.
+3. **Emergency bail-out:** T1 is clearly about to end with no clean material remaining.
+
+**Zone-data trigger for a cut:**
+- T1 zone shows `rms < 0.15` (near-silent section) → cut is inaudible regardless of harmonic compatibility
+- OR Camelot distance ≥ 3 AND T1 zone `drums > 0.5` (energetic section) → blend would clash; cut here
+
+**Action pattern for a cut:**
+```json
+[
+  {"type": "fade_out", "track": "T1", "start_bar": 72, "duration_bars": 4},
+  {"type": "play", "track": "T2", "at_bar": 76, "from_bar": 0}
+]
+```
+- Use `duration_bars: 4` for a quick fade (not a hard stop) to avoid a click.
+- No `fade_in` stems needed — T2 enters at full volume.
+- No `bass_swap` needed — the quick fade handles bass removal.
+
+---
+
+### 14.8 DROP SWAP (`style: "drop_swap"`) — energy-to-energy transition
+
+**What it is:** T1's drop energy is replaced by T2's drop energy at a precise beat-aligned bar. Both tracks have active kick+bass at the swap moment.
+
+**When:** Phase 1 window selection returns `style: "drop_swap"`. T1 zone shows a DROP ending, T2 zone shows a DROP starting.
+
+**Zone conditions:**
+- T1 zone near exit: `drums > 0.6, harmonic > 0.5, rms > 0.6` (full drop active)
+- T2 zone near entry: `drums > 0.6, harmonic > 0.4, rms > 0.6` (T2 drop ready to fire)
+- Both at same bar phase (8-bar aligned)
+
+**Action pattern:**
+```json
+[
+  {"type": "fade_in", "track": "T2", "start_bar": 60, "duration_bars": 8,
+   "from_bar": 0, "stems": {"drums": 1.0, "bass": 0.0, "vocals": 0.0, "other": 0.5}},
+  {"type": "bass_swap", "track": "T1", "at_bar": 64, "incoming_track": "T2"},
+  {"type": "fade_out", "track": "T1", "start_bar": 60, "duration_bars": 8},
+  {"type": "play", "track": "T2", "at_bar": 68, "from_bar": 8}
+]
+```
+Key differences from a standard blend:
+- `duration_bars: 8` (not 16) — fast swap, energy stays up
+- T2 `drums: 1.0` immediately — no gradual build, drop-to-drop
+- `bass_swap` at the exact midpoint of the 8-bar window
+- `eq(T1, low=0.3)` can be added at fade start to start reducing T1 bass before swap
+
+---
+
+### 14.9 TRANSITION SELECTION GUIDE — reading zone data → choosing technique
+
+This is the master decision tree. Read the zone tables, apply this logic:
+
+```
+T1 exit zone energy:
+├─ rms < 0.20 (sparse/outro)
+│   ├─ Camelot ≤ ±2 → BLEND (16-bar fade_in, standard bass_swap)
+│   └─ Camelot ≥ ±3 → BLEND (sparse covers dissonance) or CUT (4-bar fade_out)
+│
+├─ rms 0.20–0.55 (mid-groove)
+│   ├─ T1 n_bars remaining ≥ 24 → BLEND (fade_in 16 bars, start at current bar)
+│   ├─ T1 n_bars remaining < 16 → LOOP (extend short outro) then BLEND
+│   └─ Camelot ≥ ±3 → CUT or SHORT BLEND (8 bars, eq to suppress mids)
+│
+└─ rms > 0.55 (full drop/peak)
+    ├─ T2 also has DROP at entry → DROP SWAP (8-bar overlap, drums:1.0)
+    ├─ T2 has clean intro → LOOP peak hold (1 repeat) then BLEND
+    └─ Camelot ≥ ±3 → LOOP to hold while T1 energy subsides, then CUT
+```
+
+**T2 entry zone — choosing from_bar and stem values:**
+```
+T2 bar 0–N: rms < 0.1 AND drums < 0.1
+  → Skip these bars. Set from_bar = first bar where drums > 0.15 or harmonic > 0.1
+
+T2 at from_bar: drums > 0.3, harmonic < 0.2
+  → drums:0.8, other:0.3 (percussion-only intro — safe opening)
+
+T2 at from_bar: drums > 0.4, harmonic > 0.3
+  → drums:0.8, other:(0.6 if Camelot ≤±1, else 0.2) — groove already active, be careful with harmonic bleed
+
+T2 at from_bar: vocals.presence > 5
+  → vocals:0.0 always, reduce other:0.2 to suppress vocal bleed through "other" stem
+```
+
+---
+
+### 14.10 ENERGY MANAGEMENT — what the combined mix sounds like
+
+At every bar in the transition window, calculate the combined energy:
+
+```
+combined_rms ≈ (T1_rms × T1_fade_gain) + (T2_rms × T2_fade_gain)
+```
+
+Where:
+- T1_fade_gain at bar N = `1.0 - (N - fade_out.start_bar) / fade_out.duration_bars`
+- T2_fade_gain at bar N = `(N - fade_in.start_bar) / fade_in.duration_bars`
+
+**Target energy curve for a standard blend:**
+- Bar 0 of window: combined = T1 rms (T2 not yet audible)
+- Bar 8 (midpoint): combined = 0.6 × T1 + 0.4 × T2 (balanced)
+- Bar 16 (end): combined = T2 rms (T1 gone)
+- No dip below 0.20 (sounds dead)
+- No spike above 0.80 (sounds distorted/doubled)
+
+**Warning:** If T1's rms at exit is 0.50 and T2's rms at entry is 0.55, the combined at bar 8 = 0.30+0.22 = 0.52 — fine. But if both are 0.70, the combined peaks at 0.70 — dangerous. Use eq(T1, low=0.0) (already standard) to prevent low-end buildup; the bass-first fade_out in the executor also enforces this automatically.
+
+**Mono bass check rule** (sourced: Mixgraph bass management guide):
+Club subwoofer systems sum everything below 80–100 Hz to mono. Two bass lines that sound acceptable in stereo may phase-cancel in mono, making the bass literally disappear from the floor. The executor's `_apply_smooth_bass_swap` + the `eq(T1, low=0.0)` pre-cut together enforce mono-safe bass management: at any given moment, only one track contributes sub-bass to the mix.
+
+**32-beat phrase grid** (sourced: ISMIR 2020 academic paper — 20,765 real transitions analyzed):
+The 32-beat (8-bar) phrase boundary is the empirically dominant transition point in professional electronic music DJing. Across 20,765 real transitions: the vast majority start and end on 32-beat boundaries. This is not just convention — it's a statistical norm. All `bass_swap`, `fade_in`, and `play` actions should be bar-aligned, and ideally phrase-aligned (multiples of 8 bars). Mid-phrase action placement is the single most common source of audible transition errors.
+
+---
+
+### 14.11 DIVERSITY REQUIREMENTS — vary your technique
+
+**You are prohibited from outputting the same action sequence on consecutive transitions.** Signs of template-stamping:
+- `fade_in.start_bar` is always `window.t1_exit_bar` — you must vary this based on zone data
+- `bass_swap.at_bar` is always `fade_in.start_bar + 8` — adjust based on when T1 bass actually fades
+- `play.at_bar` is always `fade_in.start_bar + 16` — adjust based on T2 groove entry
+
+**Techniques to vary across a set:**
+1. Blend with 16-bar intro fade (standard)
+2. Blend with 8-bar fast fade (high energy exit)
+3. Loop-assisted blend (short outro extension)
+4. Drop-to-drop swap (peak energy)
+5. Cut (incompatible key or emergency)
+6. 24-bar slow blend (prog/trance only)
+7. Loop peak hold + blend (crowd response)
+
+Never play three consecutive transitions without varying the overlap length (8 vs 16 vs 24) or technique type (blend vs loop-blend vs cut).
+
+---
+
 ## CAVEATS
 
 - **All numeric guidance is a default, not an absolute.** Reading the room -- when audience-feedback signal is available -- overrides any rule above. If the dancefloor is responding strongly to a "wrong" choice, continue.
 - **Genre BPM ranges overlap and shift over time.** Treat the ranges as central tendencies; individual tracks may sit outside them.
 - **The Camelot Wheel is a heuristic** built on equal-tempered Western tonality. Tracks with modal ambiguity (atonal techno, drone-based tracks, key-shifting productions) may show "compatible" on the wheel but still clash; trust the audio over the metadata.
-- **Key-detection algorithms are imperfect** (often 80-95% accurate). Cross-validate with audio analysis when possible; one wrong key tag will produce a wrong-sounding "compatible" mix.
+- **Key-detection accuracy is lower than most DJs assume.** Measured benchmarks: Mixed In Key 75–86% accuracy, Rekordbox 69% (Bittner 2017, Sabanci 2025 — ISMIR academic papers). More critically: **cross-platform key detection agreement is only 39%** — meaning two different tools analyzing the same track will agree on the key only 39% of the time. Never mix key metadata from different analysis tools in the same library. Pick one tool and analyze everything with it; metadata inconsistency cannot be compensated for by the Camelot Wheel.
 - **The "energy level" 1-10 scale is subjective** but stable within a single library if rated consistently. Different rating sources are not directly comparable.
 - **Stem separation introduces artifacts.** Vocal stems especially can have residual instrumentation. Stem-layered transitions sound best when the source mix is dense; sparse mixes expose stem-separation artifacts.
 - **The drop-into-drop / double-drop rule of "rare in trance / prog house"** is convention; some modern productions are designed for it. Adjust per artist/label catalog knowledge if available.

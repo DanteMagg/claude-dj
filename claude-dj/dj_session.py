@@ -472,6 +472,27 @@ async def dj_worker(
             t2_offset=adjusted_offset,
             t1_offset=current_start,
         )
+
+        # Guard: clamp T1's fade_out so it can't land past T1's actual audio end.
+        # Claude writes fade_out.start_bar in track-local space; merge_transition adds
+        # t1_offset. On iteration 3+ t1_offset is large and a stale or conservative
+        # Claude value can push fade_out past the end of the audio → layer never fades,
+        # track plays to silence.
+        t1_audio_end_bar = current_start + current_analysis.bar_grid.n_bars
+        patched_actions = []
+        for a in new_script.actions:
+            if a.track == current_id and a.type == "fade_out" and a.start_bar is not None:
+                dur = a.duration_bars or 16
+                max_start = t1_audio_end_bar - dur
+                if a.start_bar > max_start:
+                    print(
+                        f"[dj_worker] T1 fade_out clamped: start_bar {a.start_bar}→{max_start} "
+                        f"(t1_audio_end={t1_audio_end_bar})"
+                    )
+                    a = dataclasses.replace(a, start_bar=max(current_start, max_start))
+            patched_actions.append(a)
+        new_script = dataclasses.replace(new_script, actions=patched_actions)
+
         scheduler.extend(new_script, extra_loaded, extra_stems)
         audio_sess.script = new_script
 

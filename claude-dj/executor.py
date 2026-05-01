@@ -323,16 +323,16 @@ def compute_cursors_at_ms(
                         inc.bass_cut = False  # bass restored on incoming
 
         elif action.type == "eq":
+            # Persistent: eq holds from bar onward (no end limit).
             bar_ms = bars_to_ms(action.bar or 0, ref_bpm)
-            eq_end = bar_ms + bars_to_ms(4, ref_bpm)
-            if bar_ms <= target_ms < eq_end:
+            if target_ms >= bar_ms:
                 c.eq = (
                     action.low  if action.low  is not None else 1.0,
                     action.mid  if action.mid  is not None else 1.0,
                     action.high if action.high is not None else 1.0,
                 )
                 c.eq_start_ms = bar_ms
-                c.eq_end_ms   = eq_end
+                c.eq_end_ms   = None  # sustained indefinitely
 
         elif action.type == "loop":
             loop_start_ms  = bars_to_ms(action.start_bar or 0,    ref_bpm)
@@ -692,10 +692,31 @@ def render(script: MixScript, output_path: str, export_mp3: bool = False) -> str
 
         elif action.type == "fade_out":
             # Track-local: fades and silences only this track's layer.
+            # Bass-first fade: HPF from start to kill low-end bleed during overlap,
+            # then linear gain ramp to silence. This mirrors the real-DJ technique of
+            # cutting the low EQ knob before fading the channel out.
             fade_ms  = bars_to_ms(action.duration_bars or 8, ref_bpm)
             start_ms = bars_to_ms(action.start_bar or 0, ref_bpm)
             layer    = layers[tid]
-            chunk      = layer[start_ms:start_ms + fade_ms]
+
+            # Phase 1: apply progressive HPF over the fade window so bass disappears
+            # by mid-fade rather than at the very end. Uses 3 keyframe steps:
+            # start → low=1.0 (no cut), mid-fade → low=0.0 (200 Hz HPF), end → low=0.0.
+            bass_cut_ms = start_ms + fade_ms // 2  # bass fully cut at midpoint
+            # Segment 1a: start_ms → bass_cut_ms: bass fades from full to cut
+            seg_a = layer[start_ms:bass_cut_ms]
+            if len(seg_a) > 0:
+                # Smoothly ramp the HPF cutoff: apply eq at low=0.0 (full HPF) to the
+                # whole segment then crossfade from the original for a linear bass ramp.
+                hpf_a = apply_eq(seg_a, 0.0, 1.0, 1.0)
+                # Crossfade: seg_a (original, no HPF) → hpf_a (full HPF)
+                seg_a = _linear_xfade(seg_a, hpf_a, len(seg_a))
+            # Segment 1b: bass_cut_ms → end of fade: HPF sustained (bass already gone)
+            seg_b = layer[bass_cut_ms:start_ms + fade_ms]
+            if len(seg_b) > 0:
+                seg_b = apply_eq(seg_b, 0.0, 1.0, 1.0)
+
+            chunk = seg_a + seg_b if len(seg_a) > 0 else seg_b
             faded      = _apply_gain_ramp(chunk, 0, 0, fade_ms, 1.0, 0.0)
             silence_ms = max(0, len(layer) - start_ms - fade_ms)
             layers[tid] = (
@@ -798,13 +819,14 @@ def render(script: MixScript, output_path: str, export_mp3: bool = False) -> str
                 layers[tid] = layers[tid].overlay(phrase, position=pos)
 
         elif action.type == "eq":
-            # Apply EQ over a 4-bar window with EQ_XFADE_MS linear crossfades at each
-            # boundary to eliminate the splice click that a hard EQ cut-in would cause.
-            center_ms   = bars_to_ms(action.bar or 0, ref_bpm)
-            half_span   = bars_to_ms(2, ref_bpm)
-            start_ms_eq = max(0, center_ms - half_span)
-            end_ms_eq   = min(total_ms, center_ms + half_span)
+            # Persistent EQ: applies from `bar` to end of layer (not just a 4-bar window).
+            # Real DJs cut channel EQ knobs and hold them — not a momentary dip.
+            # The EQ fades in over EQ_XFADE_MS to avoid a click at the cut-in point.
+            start_ms_eq = bars_to_ms(action.bar or 0, ref_bpm)
+            end_ms_eq   = total_ms  # sustain to end of mix buffer
             chunk_len   = end_ms_eq - start_ms_eq
+            if chunk_len <= 0:
+                continue
 
             low  = action.low  if action.low  is not None else 1.0
             mid  = action.mid  if action.mid  is not None else 1.0
@@ -816,16 +838,13 @@ def render(script: MixScript, output_path: str, export_mp3: bool = False) -> str
             xf        = min(EQ_XFADE_MS, chunk_len // 4)
 
             if xf > 4:
-                # Entry: original → EQ
-                entry  = _linear_xfade(orig_seg, eq_seg, xf)
-                # Exit: EQ → original
-                exit_  = _linear_xfade(eq_seg[chunk_len - xf:], orig_seg[chunk_len - xf:], xf)
-                middle = eq_seg[xf:chunk_len - xf]
-                blended = entry + middle + exit_
+                # Smooth entry: original → EQ over xf ms
+                entry   = _linear_xfade(orig_seg[:xf], eq_seg[:xf], xf)
+                blended = entry + eq_seg[xf:]
             else:
                 blended = eq_seg
 
-            layers[tid] = layer[:start_ms_eq] + blended + layer[end_ms_eq:]
+            layers[tid] = layer[:start_ms_eq] + blended
 
     # Sum all track layers into the final mix
     print("[executor] summing track layers")

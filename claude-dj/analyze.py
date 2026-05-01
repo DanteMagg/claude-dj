@@ -105,7 +105,7 @@ def estimate_key(y: np.ndarray, sr: int) -> KeyInfo:
 
     note_names = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"]
     camelot_major = ["8B","3B","10B","5B","12B","7B","2B","9B","4B","11B","6B","1B"]
-    camelot_minor = ["5A","12A","7A","2A","9A","4A","11A","6A","1A","8A","3A","10A"]
+    camelot_minor = ["10A","5A","12A","7A","2A","9A","4A","11A","6A","1A","8A","3A"]
 
     best_score = -np.inf
     best_tonic = 0
@@ -381,7 +381,13 @@ def _cue_points_from_sections(
         if outro_bar is None:
             outro_bar = _snap(max(0, n_bars - phrase * 2))
 
-    mix_out = outro_bar or _snap(max(0, n_bars - phrase * 2))
+    # Guarantee at least 16 bars of runway after mix_out so the transition
+    # window can fit. If the detected outro is too close to the end of the
+    # track (e.g. a 2-bar tail), pull the cue back to the last viable exit.
+    MIN_RUNWAY = 16
+    max_allowed_mix_out = _snap(max(0, n_bars - MIN_RUNWAY))
+    raw_mix_out = outro_bar or _snap(max(0, n_bars - phrase * 2))
+    mix_out = min(raw_mix_out, max_allowed_mix_out)
     cues.append(CuePoint(name="mix_out", bar=mix_out, type="outro_start"))
 
     return cues

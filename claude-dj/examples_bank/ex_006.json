@@ -1,0 +1,82 @@
+{
+  "id": "ex_006",
+  "meta": {
+    "genre": "tech_house",
+    "t1_bpm": 136.0,
+    "t2_bpm": 129.2,
+    "t1_camelot": "1A",
+    "t2_camelot": "2A",
+    "camelot_distance": 1,
+    "bpm_delta": 6.8,
+    "exit_section": "groove",
+    "overlap_bars": 16,
+    "scenario": "tech house +1 move, late groove exit (bar 80), BPM cool-down 136\u2192129",
+    "source": "Laurent Garnier - Essential Mix 1995-11-18",
+    "t1_artist": "Chaser",
+    "t1_title": "Destination Unknown",
+    "t2_artist": "Silent Phase",
+    "t2_title": "Waterdance"
+  },
+  "transition_arc": "T1 is a dense tech house track. Exit at bar 80 (late groove exit) means DJ played most of the track. T2 from_bar=8 skips its 8-bar intro percussion and enters at first real groove hit. The 6.8 BPM downshift (136\u2192129 BPM) reduces intensity slightly \u2014 intentional cool-down move.",
+  "annotated_actions": [
+    {
+      "action": {
+        "type": "play",
+        "track": "T1",
+        "at_bar": 0,
+        "from_bar": 0
+      },
+      "t1_state": "T1 bar 0: immediate kick+bass groove, high energy from bar 0, RMS 0.60",
+      "why": "Tech house with no intro \u2014 enters directly at full groove."
+    },
+    {
+      "action": {
+        "type": "fade_out",
+        "track": "T1",
+        "start_bar": 80,
+        "duration_bars": 16
+      },
+      "t1_state": "T1 bar 80: drums=0.65, harmonic=0.3, rms=0.55 \u2014 full groove, past peak, late in track",
+      "t2_state": "T2 bar 8: percussion only (hi-hats, no kick yet), bass=0.0, rms=0.20",
+      "why": "T1 bar 80 is past structural peak but still energetic. DJ exits late to maximize T1 groove. T2 sparse entry at bar 8 creates a brief perceived energy breath \u2014 intentional."
+    },
+    {
+      "action": {
+        "type": "fade_in",
+        "track": "T2",
+        "start_bar": 80,
+        "duration_bars": 16,
+        "from_bar": 8,
+        "stems": {
+          "drums": 0.8,
+          "bass": 0.0,
+          "vocals": 0.0,
+          "other": 0.6
+        }
+      },
+      "t2_state": "T2 bar 8: hi-hats + snare, no kick yet, bass=0.0",
+      "why": "T2 from_bar=8: first rhythmic content. drums:0.8 adds hi-hat layer over T1's fading groove. bass:0.0 keeps low end clean while T1's bass fades."
+    },
+    {
+      "action": {
+        "type": "bass_swap",
+        "track": "T1",
+        "at_bar": 88,
+        "incoming_track": "T2"
+      },
+      "t1_state": "T1 bar 88: drums=0.30, bass=0.25, rms=0.30 \u2014 diminishing under fade",
+      "t2_state": "T2 bar 16: bass emerging (0.35), kick fully locked in",
+      "why": "T2 kick established, bass just arrived. Swap transfers bass ownership before T2 bass becomes dominant."
+    },
+    {
+      "action": {
+        "type": "play",
+        "track": "T2",
+        "at_bar": 96,
+        "from_bar": 24
+      },
+      "t2_state": "T2 bar 24: full groove at 129.2 BPM \u2014 kick+bass+hats, RMS 0.50",
+      "why": "T2 full groove. The BPM drop from 136\u2192129 is now established. T1 gone at bar 96."
+    }
+  ]
+}
