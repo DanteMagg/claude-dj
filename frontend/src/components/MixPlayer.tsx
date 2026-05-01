@@ -42,28 +42,20 @@ function trackFileName(track: TrackRef): string {
 // ── Waveform ──────────────────────────────────────────────────────────────────
 
 function Waveform({
-  script, totalBars, currentBar, bufferBars, onSeek,
+  script, totalBars, currentBar, bufferBars,
 }: {
   script: MixScript; totalBars: number; currentBar: number;
-  bufferBars: number; onSeek: (bar: number) => void;
+  bufferBars: number;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const NUM_BARS = 220;
   const bars = seededBars(script.tracks.map((t) => t.id).join(""), NUM_BARS);
 
-  const handleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (!ref.current) return;
-    const { left, width } = ref.current.getBoundingClientRect();
-    const frac = Math.max(0, Math.min(1, (e.clientX - left) / width));
-    const bar  = Math.round((frac * totalBars) / 8) * 8;
-    onSeek(bar);
-  }, [totalBars, onSeek]);
-
   const playheadPct  = totalBars > 0 ? (currentBar / totalBars) * 100 : 0;
   const bufferEndPct = totalBars > 0 ? (Math.min(totalBars, currentBar + bufferBars) / totalBars) * 100 : 0;
 
   return (
-    <div className="wf-root" ref={ref} onClick={handleClick}>
+    <div className="wf-root" ref={ref}>
       {/* bars */}
       <div className="wf-bars">
         {bars.map((h, i) => {
@@ -644,7 +636,6 @@ export default function MixPlayer({
         totalBars={totalBars}
         currentBar={status.currentBar}
         bufferBars={status.bufferDepthBars}
-        onSeek={controls.seek}
       />
 
       {/* Decks + mixer */}

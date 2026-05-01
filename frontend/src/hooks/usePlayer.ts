@@ -21,6 +21,7 @@ export function usePlayer(sessionId: string | null) {
   const playStartCtxRef  = useRef<number>(0);   // ctx.currentTime of bar-0 playback
   const secsPerBarRef    = useRef<number>(2.0);  // updated from server status poll
   const startBarRef      = useRef<number>(0);    // bar offset at last seek
+  const firstChunkRef    = useRef<boolean>(true); // reset on seek so bar clock re-anchors
 
   const stop = useCallback(() => {
     wsRef.current?.close();
@@ -39,11 +40,21 @@ export function usePlayer(sessionId: string | null) {
 
   const seek = useCallback((bar: number) => {
     wsRef.current?.send(JSON.stringify({ action: 'seek', bar }));
-    const now = ctxRef.current?.currentTime ?? 0;
-    // Reset scheduling anchor so post-seek chunks play immediately
+
+    // Close the existing AudioContext to atomically cancel all already-scheduled
+    // BufferSource nodes. Without this, pre-seek chunks already queued via src.start()
+    // continue to fire and double up with the new post-seek audio stream.
+    if (ctxRef.current) {
+      ctxRef.current.close().catch(() => {});
+    }
+    const newCtx = new AudioContext();
+    ctxRef.current = newCtx;
+
+    const now = newCtx.currentTime;
     nextTimeRef.current     = now;
     startBarRef.current     = bar;
     playStartCtxRef.current = now;
+    firstChunkRef.current   = true; // next incoming chunk re-anchors the bar clock
   }, []);
 
   useEffect(() => {
@@ -58,7 +69,7 @@ export function usePlayer(sessionId: string | null) {
     ws.binaryType = 'arraybuffer';
     wsRef.current = ws;
 
-    let firstChunk = true;
+    firstChunkRef.current = true;
 
     ws.onmessage = (ev) => {
       if (typeof ev.data === 'string') {
@@ -69,6 +80,10 @@ export function usePlayer(sessionId: string | null) {
         return;
       }
 
+      // Always use the current AudioContext — seek() may have swapped it out.
+      const activeCtx = ctxRef.current;
+      if (!activeCtx) return;
+
       // Wire format: [uint32 num_samples_per_ch][uint32 sample_rate][float32 stereo PCM...]
       const ab         = ev.data as ArrayBuffer;
       const dv         = new DataView(ab);
@@ -77,26 +92,26 @@ export function usePlayer(sessionId: string | null) {
       const floats     = new Float32Array(ab, 8);
 
       setPlayerState('playing');
-      const buf = ctx.createBuffer(CHANNELS, frameCount, sampleRate);
+      const buf = activeCtx.createBuffer(CHANNELS, frameCount, sampleRate);
 
       for (let ch = 0; ch < CHANNELS; ch++) {
         const channel = buf.getChannelData(ch);
         for (let i = 0; i < frameCount; i++) channel[i] = floats[i * CHANNELS + ch];
       }
 
-      const src  = ctx.createBufferSource();
+      const src  = activeCtx.createBufferSource();
       src.buffer = buf;
-      src.connect(ctx.destination);
+      src.connect(activeCtx.destination);
 
-      const when = Math.max(nextTimeRef.current, ctx.currentTime + 0.08);
+      const when = Math.max(nextTimeRef.current, activeCtx.currentTime + 0.08);
 
       // Resume AudioContext in case autoplay policy suspended it
-      if (ctx.state === 'suspended') ctx.resume();
+      if (activeCtx.state === 'suspended') activeCtx.resume();
 
-      // Anchor client-side bar clock to when bar-0 audio will actually play.
-      if (firstChunk) {
+      // Anchor client-side bar clock to when bar-0 (or post-seek bar-N) audio plays.
+      if (firstChunkRef.current) {
         playStartCtxRef.current = when;
-        firstChunk = false;
+        firstChunkRef.current   = false;
       }
 
       src.start(when);

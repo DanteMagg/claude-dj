@@ -73,7 +73,7 @@ export default function TransportBar({
         {String(relBar).padStart(3, ' ')} / {totalBars}
       </span>
 
-      {/* Seek bar */}
+      {/* Progress bar — read-only, no seeking (would break the DJ pipeline) */}
       <div
         style={{
           flex: 1,
@@ -81,13 +81,7 @@ export default function TransportBar({
           background: 'var(--border)',
           borderRadius: 2,
           position: 'relative',
-          cursor: 'pointer',
-        }}
-        onClick={(e) => {
-          const rect    = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-          const relBar  = Math.round(((e.clientX - rect.left) / rect.width) * totalBars);
-          const globalBar = startBar + Math.max(0, Math.min(relBar, totalBars - 1));
-          onSeek(globalBar);
+          cursor: 'default',
         }}
       >
         {/* Buffer indicator */}

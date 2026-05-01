@@ -7,7 +7,6 @@ interface Props {
   currentBar:    number;
   startBar:      number;       // global bar where deck A started (deck_a.start_bar)
   transitionBar: number | null; // global bar of next transition
-  onSeek:        (bar: number) => void;
 }
 
 function sampleCurve(curve: string, targetBars: number): number[] {
@@ -49,7 +48,7 @@ function drawCurve(
   ctx.globalAlpha = 1;
 }
 
-export default function WaveformStrip({ trackA, trackB, currentBar, startBar, transitionBar, onSeek }: Props) {
+export default function WaveformStrip({ trackA, trackB, currentBar, startBar, transitionBar }: Props) {
   const canvasRef    = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [canvasW, setCanvasW] = useState(0);
@@ -142,15 +141,6 @@ export default function WaveformStrip({ trackA, trackB, currentBar, startBar, tr
     ctx.stroke();
   }, [trackA, trackB, currentBar, startBar, transitionBar, canvasW]);
 
-  const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const rect = canvasRef.current!.getBoundingClientRect();
-    const x    = e.clientX - rect.left;
-    const totalBars = trackA ? Math.max(1, trackA.energy_curve.length) : 128;
-    const relBar = Math.round((x / rect.width) * totalBars);
-    // Convert back to global bar for the seek handler
-    onSeek(Math.max(0, startBar + Math.min(relBar, totalBars - 1)));
-  };
-
   return (
     <div
       ref={containerRef}
@@ -159,14 +149,13 @@ export default function WaveformStrip({ trackA, trackB, currentBar, startBar, tr
         height: 64,
         background: 'var(--bg)',
         borderBottom: '1px solid var(--border)',
-        cursor: 'crosshair',
+        cursor: 'default',
         flexShrink: 0,
       }}
     >
       <canvas
         ref={canvasRef}
         style={{ display: 'block', width: '100%', height: '100%' }}
-        onClick={handleClick}
       />
     </div>
   );
