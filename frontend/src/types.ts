@@ -1,67 +1,8 @@
-export interface TrackRef {
-  id: string;
-  path: string;
-  bpm: number;
-  first_downbeat_s: number;
-}
-
-export interface MixAction {
+export interface CuePoint {
+  name: string;
+  bar: number;
   type: string;
-  track: string;
-  at_bar?: number;
-  from_bar?: number;
-  start_bar?: number;
-  duration_bars?: number;
-  stems?: Record<string, number>;
-  bar?: number;
-  low?: number;
-  mid?: number;
-  high?: number;
-  incoming_track?: string;
-  loop_bars?: number;
-  loop_repeats?: number;
-  loop_mute_tail?: boolean;
 }
-
-export interface MixScript {
-  mix_title: string;
-  reasoning: string;
-  tracks: TrackRef[];
-  actions: MixAction[];
-}
-
-export interface AnalysisJob {
-  status: "running" | "done" | "error";
-  progress: number;
-  total: number;
-  analyses: Record<string, unknown>[];
-  error: string | null;
-}
-
-export interface Session {
-  session_id: string;
-  script: MixScript;
-  ref_bpm: number;
-  /** "loading" → audio is loading in bg; "ready" → WS can open; "error" → load failed */
-  status: string;
-  load_total: number;
-}
-
-export interface SessionPoll {
-  status: string;
-  load_progress: number;
-  load_total: number;
-  error: string | null;
-}
-
-export interface StatusResponse {
-  current_bar: number;
-  buffer_depth_bars: number;
-  ref_bpm: number;
-  tracks: TrackRef[];
-}
-
-// ── Library ───────────────────────────────────────────────────────────────────
 
 export interface LibraryTrack {
   hash: string;
@@ -73,24 +14,23 @@ export interface LibraryTrack {
   key_standard: string;
   energy: number;
   duration_s: number;
-  /** compact energy string e.g. "4567898765…" (one digit 0-9 per bar) */
   energy_curve: string;
-  cue_points: { name: string; bar: number; type: string }[];
+  cue_points: CuePoint[];
   first_downbeat_s: number;
-  analyzed_at?: string;
+  analyzed_at: string;
 }
 
 export interface LibraryScanJob {
-  status: "running" | "done" | "error";
+  status: 'running' | 'done' | 'error';
   progress: number;
   total: number;
   known: number;
   new: number;
+  skipped?: number;
   error: string | null;
 }
 
-// ── DJ Session ────────────────────────────────────────────────────────────────
-
+// deck_a always has a hash; deck_b only has status + title (backend limitation)
 export interface DjDeck {
   track_id: string;
   hash: string;
@@ -99,14 +39,70 @@ export interface DjDeck {
   status: string;
 }
 
+export interface DjDeckB {
+  status: 'starting' | 'analyzing' | 'planning' | 'loading' | 'ready';
+  title: string;
+}
+
+export interface MixAction {
+  type: string;
+  track: string;
+  at_bar: number | null;
+  from_bar: number | null;
+  to_bar: number | null;
+  bar: number | null;
+  start_bar: number | null;
+}
+
+export interface MixTrackRef {
+  id: string;
+  path: string;
+  bpm: number;
+  first_downbeat_s: number;
+}
+
+export interface MixScript {
+  mix_title: string;
+  reasoning: string;
+  tracks: MixTrackRef[];
+  actions: MixAction[];
+}
+
 export interface DjState {
-  status: "starting" | "playing" | "error";
+  status: 'starting' | 'playing' | 'error';
   session_id: string | null;
   deck_a: DjDeck | null;
-  deck_b: DjDeck | null;
-  history: string[];
-  queue: string[];
+  deck_b: DjDeckB | null;
   ref_bpm: number | null;
+  queue: string[];
+  history: string[];
   script: MixScript | null;
   error: string | null;
+}
+
+export interface PlaybackStatus {
+  current_bar: number;
+  buffer_depth_bars: number;
+  ref_bpm: number;
+  status: string;
+}
+
+export type PlayerState = 'idle' | 'connecting' | 'buffering' | 'playing' | 'stopped' | 'error';
+
+export interface DjStartOpts {
+  pool: string[];
+  queue: string[];
+  let_claude_pick: boolean;
+  model: string;
+}
+
+// Electron bridge (exposed by preload.cjs)
+declare global {
+  interface Window {
+    electron?: {
+      selectFolder: () => Promise<string | null>;
+      showInFolder: (path: string) => Promise<void>;
+      isElectron: boolean;
+    };
+  }
 }
