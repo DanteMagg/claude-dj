@@ -21,6 +21,7 @@ def normalize(script: MixScript) -> MixScript:
     actions = _clamp_loops(actions)
     actions = _inject_play_for_orphaned_fade_in(actions)
     actions = _inject_bass_swap_if_missing(actions)
+    actions = _inject_fade_out_if_missing(actions, script.tracks)
     return MixScript(
         mix_title=script.mix_title,
         reasoning=script.reasoning,
@@ -139,6 +140,52 @@ def _inject_play_for_orphaned_fade_in(actions: list[MixAction]) -> list[MixActio
                 f"[normalizer] injected implied play for {fi.track} at bar {fade_end_bar} "
                 f"(from_bar={from_bar}) — no play followed its fade_in"
             )
+    if not injected:
+        return actions
+    return sorted(actions + injected, key=_action_sort_key)
+
+
+def _inject_fade_out_if_missing(
+    actions: list[MixAction],
+    tracks: list,
+) -> list[MixAction]:
+    """
+    Every non-final track must have a fade_out scheduled. If one is absent, auto-inject
+    one at the last play action's at_bar + 16 bars (phrase-snapped), then silence the rest.
+    This is a last-resort safety net — the prompt should have produced one explicitly.
+    """
+    if len(tracks) < 2:
+        return actions
+
+    non_final_tids = {t.id for t in tracks[:-1]}
+    injected: list[MixAction] = []
+
+    for tid in non_final_tids:
+        has_fade_out = any(a.type == "fade_out" and a.track == tid for a in actions)
+        if has_fade_out:
+            continue
+
+        # Find the latest play or fade_in action for this track to anchor on
+        track_actions = [
+            a for a in actions
+            if a.track == tid and a.type in ("play", "fade_in")
+        ]
+        if not track_actions:
+            continue
+
+        anchor = max(track_actions, key=lambda a: a.at_bar or a.start_bar or 0)
+        anchor_bar = anchor.at_bar or anchor.start_bar or 0
+        fade_start = ((anchor_bar + 16) // PHRASE) * PHRASE
+        injected.append(MixAction(
+            type="fade_out", track=tid,
+            start_bar=fade_start,
+            duration_bars=16,
+        ))
+        print(
+            f"[normalizer] auto-injected fade_out for {tid} at bar {fade_start} "
+            f"(anchored on {anchor.type}@{anchor_bar}) — was missing"
+        )
+
     if not injected:
         return actions
     return sorted(actions + injected, key=_action_sort_key)

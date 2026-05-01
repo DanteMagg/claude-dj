@@ -84,6 +84,16 @@ ENERGY CURVE: [........]
 
 ---
 
+### FADE_OUT IS MANDATORY FOR EVERY NON-FINAL TRACK
+
+**Every track except the very last one in the set MUST have a `fade_out` action.**
+A missing `fade_out` means T1 plays all the way to end-of-file in silence before T2 begins —
+the textbook DJ fail. The normalizer will auto-inject one if you forget, but it will be wrong
+(no zone data, no phrase awareness). Schedule it yourself at the mix_out cue or BREAKDOWN.
+This is not optional. It is as mandatory as `bass_swap`.
+
+---
+
 ### SET STRUCTURE -- ENERGY ARC
 
 - Play T1 from its `mix_in` cue through to near its `mix_out` cue.
