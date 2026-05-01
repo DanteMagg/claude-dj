@@ -124,6 +124,25 @@ class ChunkScheduler:
     def buffer_depth_bars(self) -> int:
         return self._queue.qsize() * self.chunk_bars
 
+    def extend(
+        self,
+        new_script: MixScript,
+        extra_loaded: "dict[str, AudioSegment]",
+        extra_stems: "dict[tuple[str, str], AudioSegment] | None" = None,
+    ) -> None:
+        """
+        Atomically extend the live mix with new tracks/actions without stopping playback.
+
+        The in-flight render_chunk call in the thread pool holds a reference to the
+        OLD script object and completes safely. The next _fill_loop iteration picks up
+        new_script. dict.update() is atomic enough under CPython's GIL.
+        """
+        self.loaded.update(extra_loaded)
+        if extra_stems:
+            self.stem_layers.update(extra_stems)
+        self.script = new_script          # replace last — next render sees new script
+        self.total_mix_ms = _total_mix_ms(new_script, self.ref_bpm)
+
     async def _fill_loop(self) -> None:
         loop = asyncio.get_running_loop()
         while self._running:

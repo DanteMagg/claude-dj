@@ -150,6 +150,55 @@ def direct_mix(analyses: list[TrackAnalysis], model: str, min_minutes: Optional[
     return _dict_to_mix_script(data, analyses)
 
 
+def select_next_track(
+    playing: TrackAnalysis,
+    candidates: list[TrackAnalysis],
+    model: str,
+) -> str:
+    """
+    Ask Claude to pick the best-fitting next track from a list of candidates.
+    Returns the candidate's track id (e.g. "T3").
+    Fast call — small context, no full mix planning.
+    """
+    if not candidates:
+        raise ValueError("No candidates to choose from")
+    if len(candidates) == 1:
+        return candidates[0].id
+
+    client = anthropic.Anthropic()
+
+    def _compact(a: TrackAnalysis) -> dict:
+        return {
+            "id": a.id,
+            "title": a.title,
+            "bpm": round(a.bpm, 1),
+            "key": a.key.camelot,
+            "energy": a.energy_overall,
+            "duration_s": round(a.duration_s),
+        }
+
+    prompt = (
+        f"Currently playing: {json.dumps(_compact(playing))}\n\n"
+        f"Choose the best next track to mix in from this list:\n"
+        f"{json.dumps([_compact(c) for c in candidates], indent=2)}\n\n"
+        "Consider harmonic compatibility (Camelot wheel adjacency), BPM proximity "
+        "(ideally ±6 BPM, never >15), and energy flow (gradual arc, not random jumps). "
+        "Reply with ONLY the chosen track's id, nothing else."
+    )
+
+    response = client.messages.create(
+        model=model,
+        max_tokens=16,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    chosen_id = response.content[0].text.strip().strip('"').strip("'")
+    valid_ids = {c.id for c in candidates}
+    if chosen_id not in valid_ids:
+        # fallback: pick closest BPM
+        chosen_id = min(candidates, key=lambda c: abs(c.bpm - playing.bpm)).id
+    return chosen_id
+
+
 def _dict_to_mix_script(data: dict, analyses: list[TrackAnalysis]) -> MixScript:
     # Claude sees stripped filenames in the prompt — restore full paths from analyses
     path_by_id = {f"T{i+1}": a.file for i, a in enumerate(analyses)}
