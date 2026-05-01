@@ -22,6 +22,7 @@ def normalize(script: MixScript) -> MixScript:
     actions = _inject_play_for_orphaned_fade_in(actions)
     actions = _inject_bass_swap_if_missing(actions)
     actions = _inject_fade_out_if_missing(actions, script.tracks)
+    actions = _restore_incoming_eq(actions)
     return MixScript(
         mix_title=script.mix_title,
         reasoning=script.reasoning,
@@ -185,6 +186,71 @@ def _inject_fade_out_if_missing(
             f"[normalizer] auto-injected fade_out for {tid} at bar {fade_start} "
             f"(anchored on {anchor.type}@{anchor_bar}) — was missing"
         )
+
+    if not injected:
+        return actions
+    return sorted(actions + injected, key=_action_sort_key)
+
+
+def _restore_incoming_eq(actions: list[MixAction]) -> list[MixAction]:
+    """
+    EQ is now persistent (from bar → end of track). That's correct for the outgoing
+    track (T1), which is fading out and disappears. It's destructive for the incoming
+    track (T2), which continues playing after the blend: any bass/mid cut applied during
+    the overlap window would color T2 for the rest of the mix.
+
+    Fix: for every eq action on a track that has a fade_in (incoming) but no fade_out
+    (i.e. it continues past the transition), inject a restore eq(low=1.0, mid=1.0,
+    high=1.0) at the end of the transition window.
+    """
+    incoming_tids = {
+        a.track for a in actions if a.type == "fade_in"
+    }
+    outgoing_tids = {
+        a.track for a in actions if a.type == "fade_out"
+    }
+    # Tracks that are incoming-only (not also exiting in this sub-script).
+    # These are the continuing tracks whose EQ must not persist.
+    continuing_tids = incoming_tids - outgoing_tids
+
+    injected: list[MixAction] = []
+    for a in actions:
+        if a.type != "eq" or a.track not in continuing_tids:
+            continue
+        # This EQ is on a track that continues playing — find the transition end bar.
+        # Use the fade_in for that track to determine when the blend window closes.
+        fi = next(
+            (x for x in actions if x.type == "fade_in" and x.track == a.track),
+            None,
+        )
+        if fi is None:
+            continue
+        eq_any_non_default = (
+            (a.low  is not None and a.low  != 1.0) or
+            (a.mid  is not None and a.mid  != 1.0) or
+            (a.high is not None and a.high != 1.0)
+        )
+        if not eq_any_non_default:
+            continue  # eq is already unity — no restore needed
+        restore_bar = (fi.start_bar or 0) + (fi.duration_bars or 0)
+        restore_bar = round(restore_bar / PHRASE) * PHRASE
+        # Only inject if there isn't already a restore at or after this bar
+        already_restored = any(
+            x.type == "eq" and x.track == a.track
+            and (x.bar or 0) >= restore_bar
+            and x.low == 1.0 and x.mid == 1.0 and x.high == 1.0
+            for x in actions
+        )
+        if not already_restored:
+            injected.append(MixAction(
+                type="eq", track=a.track,
+                bar=restore_bar,
+                low=1.0, mid=1.0, high=1.0,
+            ))
+            print(
+                f"[normalizer] restored EQ for incoming {a.track} at bar {restore_bar} "
+                f"(had low={a.low} mid={a.mid} high={a.high} from bar {a.bar})"
+            )
 
     if not injected:
         return actions
