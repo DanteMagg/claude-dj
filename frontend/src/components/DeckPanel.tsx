@@ -8,9 +8,6 @@ interface Props {
   track:     LibraryTrack | undefined;
 }
 
-function isDeckA(d: DjDeck | DjDeckB | null): d is DjDeck {
-  return d !== null && 'hash' in d;
-}
 
 export default function DeckPanel({ variant, deck, sessionId, track }: Props) {
   const isA      = variant === 'a';
