@@ -65,6 +65,7 @@ class ChunkScheduler:
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="chunk-render")
         self._running  = False
         self._fill_task: Optional[asyncio.Task] = None  # type: ignore[type-arg]
+        self._render_epoch: int = 0
 
     async def start(self) -> None:
         self._running   = True
@@ -78,8 +79,9 @@ class ChunkScheduler:
 
     def seek(self, bar: int) -> None:
         """Reposition to a different bar — drains the stale buffer."""
-        self._playback_bar = bar
-        self._render_bar   = bar
+        self._playback_bar  = bar
+        self._render_bar    = bar
+        self._render_epoch += 1
         while not self._queue.empty():
             try:
                 self._queue.get_nowait()
@@ -111,6 +113,7 @@ class ChunkScheduler:
 
             bar_start = self._render_bar
             start_ms  = bars_to_ms(bar_start, self.ref_bpm)
+            epoch     = self._render_epoch  # snapshot before yield point
 
             try:
                 chunk: AudioSegment = await loop.run_in_executor(
@@ -123,6 +126,8 @@ class ChunkScheduler:
                     start_ms,
                     self.chunk_ms,
                 )
+                if epoch != self._render_epoch:  # seek() fired while we were rendering
+                    continue
                 pcm = segment_to_pcm(chunk)
                 await self._queue.put(pcm)
                 self._render_bar += self.chunk_bars

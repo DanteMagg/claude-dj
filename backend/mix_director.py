@@ -151,7 +151,10 @@ def direct_mix(analyses: list[TrackAnalysis], model: str, min_minutes: Optional[
 
 
 def _dict_to_mix_script(data: dict, analyses: list[TrackAnalysis]) -> MixScript:
-    tracks = [MixTrackRef(**t) for t in data["tracks"]]
+    # Claude sees stripped filenames in the prompt — restore full paths from analyses
+    path_by_id = {f"T{i+1}": a.file for i, a in enumerate(analyses)}
+    tracks = [MixTrackRef(**{**t, "path": path_by_id.get(t["id"], t.get("path", ""))})
+              for t in data["tracks"]]
     actions = []
     for a in data["actions"]:
         # normalise: fill missing optional fields with None

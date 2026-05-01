@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import ClawdDJ from "./ClawdDJ";
 import { usePlayer } from "../hooks/usePlayer";
 import { barToMmss } from "../utils";
-import type { MixAction, MixScript, Session, TrackRef } from "../types";
+import type { DjState, MixAction, MixScript, TrackRef } from "../types";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -565,59 +565,78 @@ function EventStrip({
 // ── Root player ───────────────────────────────────────────────────────────────
 
 export default function MixPlayer({
-  session, audioReady, loadProgress, loadTotal,
+  djState,
 }: {
-  session: Session;
-  audioReady: boolean;
-  loadProgress: number;
-  loadTotal: number;
+  djId: string;
+  djState: DjState | null;
 }) {
-  const { session_id, script, ref_bpm } = session;
-  // Only open the WebSocket once audio is loaded — passes null while loading
-  const [status, controls] = usePlayer(audioReady ? session_id : null);
-  const [showReasoning, setShowReasoning] = useState(false);
-  const totalBars = estimateTotalBars(script);
+  const sessionId  = djState?.session_id ?? null;
+  const script     = djState?.script ?? null;
+  const ref_bpm    = djState?.ref_bpm ?? 120;
+  const audioReady = !!sessionId;
 
-  const t1 = script.tracks[0];
-  const t2 = script.tracks[1];
+  // Open WebSocket only once session_id is available (T1 loaded)
+  const [status, controls] = usePlayer(sessionId);
+  const [showReasoning, setShowReasoning] = useState(false);
+
+  const totalBars = script ? estimateTotalBars(script) : 0;
+
+  // Deck A/B come from djState; fall back to script tracks if available
+  const t1 = script?.tracks.find((t) => t.id === djState?.deck_a?.track_id) ?? script?.tracks[0];
+  const t2 = script?.tracks.find((t) => t.id === djState?.deck_b?.track_id) ?? script?.tracks[1];
+
+  // Booting overlay — DJ worker is starting T1
+  if (!sessionId || !script) {
+    return (
+      <div className="mp-boot">
+        <ClawdDJ state="buffering" size={56} />
+        <div className="mp-boot-text">
+          <div className="mp-boot-title">
+            {djState?.status === "error"
+              ? "Error"
+              : djState?.deck_b?.status === "analyzing"
+              ? `Analyzing ${djState.deck_b.title}…`
+              : "Loading first track…"}
+          </div>
+          <div className="mp-boot-sub">
+            {djState?.error ?? "Claude is preparing the mix"}
+          </div>
+        </div>
+        <style>{`
+          .mp-boot {
+            height: 100%; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; gap: 20px;
+            background: var(--bg);
+          }
+          .mp-boot-text { display: flex; flex-direction: column; gap: 6px; text-align: center; }
+          .mp-boot-title { font-size: 18px; font-weight: 700; color: var(--text); }
+          .mp-boot-sub   { font-size: 13px; color: var(--text-2); }
+        `}</style>
+      </div>
+    );
+  }
 
   return (
     <div className="mp-root">
-      {/* Top bar */}
+      {/* Buffer meter */}
       <div className="mp-topbar">
-        <ClawdDJ state={status.state} size={44} />
-        <div className="mp-title-wrap">
-          <span className="mp-brand">CLAUDE DJ</span>
-          <span className="mp-mix-title">{script.mix_title}</span>
-        </div>
-        <div className="mp-topbar-right">
-          <div className="mp-buf-meter" title={`Buffer: ${status.bufferDepthBars} bars`}>
-            <span className="mp-buf-label">BUF</span>
-            <div className="mp-buf-track">
-              <div className="mp-buf-fill" style={{
-                width: `${Math.min(100, (status.bufferDepthBars / 32) * 100)}%`
-              }} />
-            </div>
-            <span className="mp-buf-val">{status.bufferDepthBars}b</span>
+        <div className="mp-buf-meter" title={`Buffer: ${status.bufferDepthBars} bars`}>
+          <span className="mp-buf-label">BUF</span>
+          <div className="mp-buf-track">
+            <div className="mp-buf-fill" style={{
+              width: `${Math.min(100, (status.bufferDepthBars / 32) * 100)}%`
+            }} />
           </div>
+          <span className="mp-buf-val">{status.bufferDepthBars}b</span>
         </div>
-      </div>
 
-      {/* Loading bar — shown while audio is still loading in the background */}
-      {!audioReady && (
-        <div className="mp-loading">
-          <span className="mp-loading-label">
-            Loading audio — track {loadProgress} / {loadTotal}
-          </span>
-          <div className="mp-loading-track">
-            <div
-              className="mp-loading-fill"
-              style={{ width: loadTotal > 0 ? `${(loadProgress / loadTotal) * 100}%` : "0%" }}
-            />
+        {djState?.deck_b && (
+          <div className="mp-deck-b-status">
+            <span className="mp-deck-b-label">{djState.deck_b.status.toUpperCase()}</span>
+            <span className="mp-deck-b-title">{djState.deck_b.title}</span>
           </div>
-          <span className="mp-loading-hint">Script ready · playback starts when loading completes</span>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Waveform */}
       <Waveform
@@ -662,20 +681,10 @@ export default function MixPlayer({
           background: var(--bg);
         }
         .mp-topbar {
-          display: flex; align-items: center; gap: 12px; padding: 8px 16px;
+          display: flex; align-items: center; gap: 14px; padding: 5px 14px;
           background: var(--surface); border-bottom: 1px solid var(--border);
           flex-shrink: 0;
         }
-        .mp-title-wrap { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
-        .mp-brand {
-          font-size: 10px; font-weight: 700; letter-spacing: .2em;
-          color: var(--orange); text-transform: uppercase; font-family: var(--mono);
-        }
-        .mp-mix-title {
-          font-size: 15px; font-weight: 700; white-space: nowrap;
-          overflow: hidden; text-overflow: ellipsis; color: var(--text);
-        }
-        .mp-topbar-right { display: flex; align-items: center; gap: 16px; }
         .mp-buf-meter {
           display: flex; align-items: center; gap: 6px;
           font-family: var(--mono); font-size: 10px; color: var(--text-2);
@@ -689,28 +698,22 @@ export default function MixPlayer({
         }
         .mp-buf-val { color: var(--text-3); }
 
-        .mp-decks {
-          display: flex; flex: 1; min-height: 0; overflow: hidden;
+        .mp-deck-b-status {
+          display: flex; align-items: center; gap: 6px;
+          font-family: var(--mono);
+        }
+        .mp-deck-b-label {
+          font-size: 9px; font-weight: 700; letter-spacing: .12em;
+          color: var(--blue); background: var(--blue-lo);
+          padding: 1px 5px; border-radius: 3px;
+        }
+        .mp-deck-b-title {
+          font-size: 11px; color: var(--text-2); max-width: 200px;
+          overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
         }
 
-        .mp-loading {
-          display: flex; align-items: center; gap: 10px;
-          padding: 8px 16px; background: var(--surface2);
-          border-bottom: 1px solid var(--border); flex-shrink: 0;
-        }
-        .mp-loading-label {
-          font-family: var(--mono); font-size: 11px; color: var(--orange);
-          white-space: nowrap; letter-spacing: .04em;
-        }
-        .mp-loading-track {
-          flex: 1; height: 3px; background: var(--border); border-radius: 2px; overflow: hidden;
-        }
-        .mp-loading-fill {
-          height: 100%; background: var(--orange); border-radius: 2px;
-          transition: width .5s ease; box-shadow: 0 0 6px var(--orange);
-        }
-        .mp-loading-hint {
-          font-size: 10px; color: var(--text-3); white-space: nowrap; font-family: var(--mono);
+        .mp-decks {
+          display: flex; flex: 1; min-height: 0; overflow: hidden;
         }
 
         .mp-error {
@@ -723,3 +726,4 @@ export default function MixPlayer({
     </div>
   );
 }
+
