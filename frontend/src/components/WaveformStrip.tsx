@@ -20,7 +20,7 @@ function sampleCurve(curve: string, targetBars: number): number[] {
 function drawCurve(
   ctx: CanvasRenderingContext2D,
   samples: number[],
-  W: number,
+  _W: number,
   H: number,
   startX: number,
   endX: number,
