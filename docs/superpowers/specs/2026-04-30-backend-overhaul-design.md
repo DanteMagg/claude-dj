@@ -313,7 +313,7 @@ def apply_loudness_match(seg: AudioSegment, source_dbfs: float) -> AudioSegment:
     return seg
 ```
 
-Called in `load_one_track()` and `_load_session_audio()` after loading, before time-stretching.
+Called in `load_one_track()` after loading, before time-stretching. (`_load_session_audio` is deleted — the auto-DJ path only uses `load_one_track`.)
 
 ### 6. Offline/streaming render parity
 
