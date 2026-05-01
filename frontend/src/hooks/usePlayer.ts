@@ -1,206 +1,93 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { WS_BASE } from "../api";
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { apiFetch, buildWsUrl } from '../api';
+import type { PlaybackStatus, PlayerState } from '../types';
 
-export type PlayerState = "idle" | "buffering" | "playing" | "paused" | "error";
+const SAMPLE_RATE = 44100;
+const CHANNELS    = 2;
 
-interface PlayerStatus {
-  state: PlayerState;
-  currentBar: number;
-  bufferDepthBars: number;
-  error: string | null;
-}
+export function usePlayer(sessionId: string | null) {
+  const [playerState,     setPlayerState]     = useState<PlayerState>('idle');
+  const [currentBar,      setCurrentBar]      = useState(0);
+  const [bufferDepthBars, setBufferDepthBars] = useState(0);
 
-export interface PlayerControls {
-  play: () => void;
-  pause: () => void;
-  seek: (bar: number) => void;
-}
+  const wsRef       = useRef<WebSocket | null>(null);
+  const ctxRef      = useRef<AudioContext | null>(null);
+  const nextTimeRef = useRef<number>(0);
+  const pollRef     = useRef<ReturnType<typeof setInterval> | null>(null);
 
-const LOOKAHEAD_S  = 0.4;   // schedule chunks this far ahead of current time
-const TICK_MS      = 80;    // scheduler tick interval
-
-export function usePlayer(sessionId: string | null): [PlayerStatus, PlayerControls] {
-  const [status, setStatus] = useState<PlayerStatus>({
-    state: "idle",
-    currentBar: 0,
-    bufferDepthBars: 0,
-    error: null,
-  });
-
-  const wsRef           = useRef<WebSocket | null>(null);
-  const ctxRef          = useRef<AudioContext | null>(null);
-  const gainRef         = useRef<GainNode | null>(null);
-  const nextTimeRef     = useRef<number>(0);
-  const chunkQueueRef   = useRef<AudioBuffer[]>([]);
-  const currentBarRef   = useRef<number>(0);
-  const chunkBarsRef    = useRef<number>(8);     // matches server CHUNK_BARS
-  const playingRef      = useRef<boolean>(false);
-  const tickRef         = useRef<ReturnType<typeof setInterval> | null>(null);
-  const activeSourcesRef = useRef<AudioBufferSourceNode[]>([]);
-
-  const getCtx = useCallback((): AudioContext => {
-    if (!ctxRef.current || ctxRef.current.state === "closed") {
-      const ctx  = new AudioContext();
-      const gain = ctx.createGain();
-      gain.connect(ctx.destination);
-      ctxRef.current = ctx;
-      gainRef.current = gain;
-    }
-    return ctxRef.current;
-  }, []);
-
-  const decodePcmFrame = useCallback(
-    (data: ArrayBuffer): AudioBuffer => {
-      const view        = new DataView(data);
-      const numSamples  = view.getUint32(0, true);
-      const sampleRate  = view.getUint32(4, true);
-      const pcm         = new Float32Array(data, 8);  // skip 8-byte header
-
-      const ctx = getCtx();
-      const buf = ctx.createBuffer(2, numSamples, sampleRate);
-
-      const left  = new Float32Array(numSamples);
-      const right = new Float32Array(numSamples);
-      for (let i = 0; i < numSamples; i++) {
-        left[i]  = pcm[i * 2]     ?? 0;
-        right[i] = pcm[i * 2 + 1] ?? 0;
-      }
-      buf.copyToChannel(left,  0);
-      buf.copyToChannel(right, 1);
-      return buf;
-    },
-    [getCtx],
-  );
-
-  const scheduleTick = useCallback(() => {
-    if (!playingRef.current) return;
-    const ctx = ctxRef.current;
-    if (!ctx || ctx.state !== "running") return;
-
-    while (
-      chunkQueueRef.current.length > 0 &&
-      nextTimeRef.current < ctx.currentTime + LOOKAHEAD_S
-    ) {
-      const buf = chunkQueueRef.current.shift()!;
-      const src = ctx.createBufferSource();
-      src.buffer = buf;
-      src.connect(gainRef.current ?? ctx.destination);
-
-      const startAt = Math.max(nextTimeRef.current, ctx.currentTime + 0.01);
-      src.start(startAt);
-      nextTimeRef.current = startAt + buf.duration;
-
-      activeSourcesRef.current.push(src);
-      src.onended = () => {
-        activeSourcesRef.current = activeSourcesRef.current.filter((s) => s !== src);
-      };
-
-      currentBarRef.current += chunkBarsRef.current;
-    }
-
-    setStatus((prev) => ({
-      ...prev,
-      state:          playingRef.current ? "playing" : "paused",
-      currentBar:     currentBarRef.current,
-      bufferDepthBars: chunkQueueRef.current.length * chunkBarsRef.current,
-    }));
-  }, []);
-
-  const connect = useCallback((id: string) => {
+  const stop = useCallback(() => {
     wsRef.current?.close();
-    const ws = new WebSocket(`${WS_BASE}/ws/stream/${id}`);
-    ws.binaryType = "arraybuffer";
-    wsRef.current = ws;
+    wsRef.current = null;
+    ctxRef.current?.close().catch(() => {});
+    ctxRef.current = null;
+    clearInterval(pollRef.current!);
+    nextTimeRef.current = 0;
+    setPlayerState('idle');
+    setCurrentBar(0);
+    setBufferDepthBars(0);
+  }, []);
 
-    ws.onopen = () => {
-      setStatus((prev) => ({ ...prev, state: "buffering", error: null }));
-    };
-
-    ws.onmessage = (ev: MessageEvent<ArrayBuffer | string>) => {
-      // Text frames are control messages from the server
-      if (typeof ev.data === "string") {
-        try {
-          const msg = JSON.parse(ev.data) as { type: string; msg?: string; progress?: number; total?: number };
-          if (msg.type === "end") {
-            playingRef.current = false;
-            setStatus((prev) => ({ ...prev, state: "idle" }));
-          } else if (msg.type === "error") {
-            setStatus((prev) => ({ ...prev, state: "error", error: msg.msg ?? "server error" }));
-          }
-          // "loading" messages are handled in App.tsx via /api/session polling; ignore here
-        } catch { /* malformed text */ }
-        return;
-      }
-
-      // Binary frame — 2-byte sentinel b"\xff\xff" means mix ended (belt + suspenders)
-      if (ev.data.byteLength === 2) {
-        playingRef.current = false;
-        setStatus((prev) => ({ ...prev, state: "idle" }));
-        return;
-      }
-
-      try {
-        const buf = decodePcmFrame(ev.data);
-        chunkQueueRef.current.push(buf);
-        if (chunkQueueRef.current.length >= 2 && playingRef.current) {
-          setStatus((prev) => ({ ...prev, state: "playing" }));
-        }
-      } catch (e) {
-        console.error("[usePlayer] decode error", e);
-      }
-    };
-
-    ws.onerror = () => {
-      setStatus((prev) => ({ ...prev, state: "error", error: "WebSocket error" }));
-    };
-
-    ws.onclose = () => {
-      if (playingRef.current) {
-        setStatus((prev) => ({ ...prev, state: "error", error: "Connection closed" }));
-      }
-    };
-  }, [decodePcmFrame]);
+  const seek = useCallback((bar: number) => {
+    wsRef.current?.send(JSON.stringify({ action: 'seek', bar }));
+  }, []);
 
   useEffect(() => {
     if (!sessionId) return;
-    connect(sessionId);
-    return () => {
-      playingRef.current = false;
-      wsRef.current?.close();
-      clearInterval(tickRef.current!);
-    };
-  }, [sessionId, connect]);
 
-  const play = useCallback(() => {
-    const ctx = getCtx();
-    if (ctx.state === "suspended") void ctx.resume();
-    playingRef.current = true;
+    setPlayerState('connecting');
+    const ctx = new AudioContext();
+    ctxRef.current  = ctx;
     nextTimeRef.current = ctx.currentTime;
-    clearInterval(tickRef.current!);
-    tickRef.current = setInterval(scheduleTick, TICK_MS);
-    setStatus((prev) => ({ ...prev, state: "playing" }));
-  }, [getCtx, scheduleTick]);
 
-  const pause = useCallback(() => {
-    playingRef.current = false;
-    clearInterval(tickRef.current!);
-    setStatus((prev) => ({ ...prev, state: "paused" }));
-  }, []);
+    const ws = new WebSocket(buildWsUrl(`/ws/stream/${sessionId}`));
+    ws.binaryType = 'arraybuffer';
+    wsRef.current = ws;
 
-  const seek = useCallback(
-    (bar: number) => {
-      for (const src of activeSourcesRef.current) {
-        try { src.stop(); } catch { /* already ended */ }
+    ws.onmessage = (ev) => {
+      if (typeof ev.data === 'string') {
+        const msg = JSON.parse(ev.data) as { type: string };
+        if (msg.type === 'loading') { setPlayerState('buffering'); return; }
+        if (msg.type === 'end')     { setPlayerState('stopped');   return; }
+        if (msg.type === 'error')   { setPlayerState('error');     return; }
+        return;
       }
-      activeSourcesRef.current = [];
-      chunkQueueRef.current  = [];
-      currentBarRef.current  = bar;
-      nextTimeRef.current    = ctxRef.current ? ctxRef.current.currentTime + 0.05 : 0;
-      wsRef.current?.send(JSON.stringify({ action: "seek", bar }));
-      setStatus((prev) => ({ ...prev, currentBar: bar, state: "buffering" }));
-    },
-    [],
-  );
 
-  return [status, { play, pause, seek }];
+      setPlayerState('playing');
+      const floats     = new Float32Array(ev.data as ArrayBuffer);
+      const frameCount = floats.length / CHANNELS;
+      const buf        = ctx.createBuffer(CHANNELS, frameCount, SAMPLE_RATE);
+
+      for (let ch = 0; ch < CHANNELS; ch++) {
+        const channel = buf.getChannelData(ch);
+        for (let i = 0; i < frameCount; i++) channel[i] = floats[i * CHANNELS + ch];
+      }
+
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+
+      // schedule with 80ms look-ahead to prevent dropouts
+      const when = Math.max(nextTimeRef.current, ctx.currentTime + 0.08);
+      src.start(when);
+      nextTimeRef.current = when + buf.duration;
+    };
+
+    ws.onerror = () => setPlayerState('error');
+    ws.onclose = () => { /* cleanup handled by stop() */ };
+
+    // Poll playback position every 500ms
+    pollRef.current = setInterval(async () => {
+      if (!sessionId) return;
+      try {
+        const res = await apiFetch(`/api/status/${sessionId}`);
+        const s   = (await res.json()) as PlaybackStatus;
+        setCurrentBar(s.current_bar);
+        setBufferDepthBars(s.buffer_depth_bars);
+      } catch { /* ignore */ }
+    }, 500);
+
+    return stop;
+  }, [sessionId, stop]);
+
+  return { playerState, currentBar, bufferDepthBars, seek, stop };
 }
