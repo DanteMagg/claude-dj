@@ -455,14 +455,135 @@ You have been given per-bar measurements for the transition windows of both trac
 **onsets** = beat density 0–4  
 Annotations: [DROP] [BREAKDOWN] [SILENT] [KICK-IN] [BASS-IN] [KICK-OUT] [BASS-OUT]
 
+---
+
+### HARD RULES — these are the two most audible failure modes
+
+**1. Vocal overlap**
+- If T1's exit section has vocals ("vox" in SECTIONS) and T2's entry section also has vocals, a
+  vocal-on-vocal collision is almost certain. In that case: cut T1's mids aggressively
+  (`eq mid=0.2`) the moment T2's fade_in starts, and keep the overlap short (≤8 bars).
+- Even with only one vocal track, schedule an `eq` to attenuate T1 mids (`mid=0.3–0.4`) before
+  the T2 vocal becomes audible. Never let two lead vocals play at full mid simultaneously.
+- Use the "vox" field in SECTIONS to determine whether each section has an active vocal line.
+
+**2. Never mix through an energy peak**
+- [DROP] bars are the loudest, densest moment of a track — starting T2's fade_in here will be
+  completely buried and the transition will sound like a sudden doubled mix.
+- If T1's zone contains [DROP] bars, pick the lowest-density window *before* or *after* the DROP
+  (look for [BREAKDOWN], [SPARSE], or minimum d+h). That is your transition runway.
+- Also avoid starting T2's fade_in when T2's own zone shows a [DROP] or rising build (high onsets
+  + rising d) — the incoming track will explode into the mix at full energy rather than blending in.
+
+---
+
+### ZONE → ACTION MAPPING
+
 Use the zone data to place actions precisely:
-- `bass_swap` at a bar labelled [KICK-OUT] or lowest d+h point in T1's zone
-- T2 `fade_in` starting when T2's zone shows drums before bass ([KICK-IN] before [BASS-IN])
-- T1 `fade_out` starting at T1's [KICK-OUT] or [BREAKDOWN] label
+- `bass_swap.at_bar` = T1 bar where `d+h` is minimum (lowest combined drum+harmonic energy)
+- `fade_in.start_bar` = T2's first bar where drums are present (d > 0.25) but harmonic is
+  not yet (h < 0.20) — enter on the drum hit, before the bass kicks in
+- `fade_out.start_bar` = T1's first [KICK-OUT] or [BREAKDOWN] bar (falling drums edge)
+- `eq.mid` on T1 = attenuate to 0.3 when T2's vocal section begins (if T1 has vox)
+
+The DERIVED HINTS block (if present) has already computed the preferred bars from zone data
+— treat them as strong defaults, only override if a phrase-boundary reason exists.
 
 The suggested window (`t1_exit_bar`, `t2_enter_bar`, `window_bars`) is a starting point —
 adjust ±8 bars to land on cleaner phrase boundaries visible in the zone data.
 """
+
+
+def _compute_zone_hints(t1_zone: list[dict], t2_zone: list[dict]) -> str:
+    """
+    Derive concrete action targets from zone measurements and surface them as explicit
+    hints so Claude doesn't have to rediscover the same decisions from raw numbers.
+    """
+    hints: list[str] = []
+
+    if t1_zone:
+        # Preferred bass_swap bar: minimum drums + harmonic (least energy to carry over)
+        best_swap = min(t1_zone, key=lambda r: r["drums"] + r["harmonic"])
+        hints.append(
+            f"T1 preferred bass_swap bar: b{best_swap['bar']} "
+            f"(d+h={best_swap['drums'] + best_swap['harmonic']:.2f}, lowest in exit zone)"
+        )
+        # High-energy bars to avoid as transition entry points
+        drop_bars = [r["bar"] for r in t1_zone if r["rms"] > 0.6 and r["drums"] > 0.6]
+        if drop_bars:
+            hints.append(
+                f"T1 DROP/high-energy bars in zone: {drop_bars[:6]} — "
+                "do NOT start T2 fade_in at these bars"
+            )
+
+    if t2_zone:
+        # Drums-only intro window: drums active but harmonic/bass not yet
+        drums_only = [r for r in t2_zone if r["drums"] > 0.25 and r["harmonic"] < 0.20]
+        if drums_only:
+            hints.append(
+                f"T2 drums-only intro window: b{drums_only[0]['bar']}–b{drums_only[-1]['bar']} "
+                "— start fade_in here (drums present, bass not yet)"
+            )
+        # First bar where T2 bass/harmonic enters
+        bass_entry = next((r for r in t2_zone if r["harmonic"] > 0.30), None)
+        if bass_entry:
+            hints.append(
+                f"T2 bass enters at b{bass_entry['bar']} "
+                "— bass_swap.incoming must fire at or before this bar"
+            )
+
+    if not hints:
+        return ""
+    return (
+        "DERIVED HINTS (computed from zone data — use as direct action targets):\n"
+        + "\n".join(f"  • {h}" for h in hints)
+        + "\n\n"
+    )
+
+
+def _vocal_warning(
+    t1: TrackAnalysis,
+    t2: TrackAnalysis,
+    window: dict,
+) -> str:
+    """
+    Check whether T1's exit region or T2's entry region has an active vocal line
+    (using per-section stem_presence) and surface a concrete mixing warning.
+    """
+    t1_exit_bar  = window["t1_exit_bar"]
+    t2_enter_bar = window["t2_enter_bar"]
+
+    t1_has_vox = any(
+        s.stems.vocals.presence >= 5 and s.end_bar >= t1_exit_bar
+        for s in t1.sections
+    )
+    t2_has_vox = any(
+        s.stems.vocals.presence >= 5 and s.start_bar <= t2_enter_bar + 32
+        for s in t2.sections
+        if s.start_bar >= t2_enter_bar
+    )
+
+    if not t1_has_vox and not t2_has_vox:
+        return ""
+
+    lines = ["VOCAL WARNING:"]
+    if t1_has_vox and t2_has_vox:
+        lines.append(
+            "  !! BOTH tracks have vocals in the transition window — highest collision risk."
+        )
+        lines.append(
+            "     → Keep overlap ≤8 bars, or choose a T1 exit before its vocal section ends."
+        )
+    if t1_has_vox:
+        lines.append(
+            "  ! T1 has vocals in its exit section — schedule eq(T1, mid=0.3) at T2 fade_in start."
+        )
+    if t2_has_vox:
+        lines.append(
+            "  ! T2 has vocals in its entry — ensure T1 mids are attenuated before T2 vocal arrives."
+        )
+    lines.append("")
+    return "\n".join(lines) + "\n"
 
 
 def _format_plan_prompt(
@@ -478,6 +599,9 @@ def _format_plan_prompt(
     t1_table = _format_zone_table(t1_zone, "T1", "exit zone")
     t2_table = _format_zone_table(t2_zone, "T2", "entry zone")
 
+    zone_hints    = _compute_zone_hints(t1_zone, t2_zone)
+    vocal_warning = _vocal_warning(t1, t2, window)
+
     coord_note = (
         "COORDINATE SYSTEM: All bar values in your output must be LOCAL to each track's "
         "first downbeat (T1 bar 0 = T1's first_downbeat_s, T2 bar 0 = T2's first_downbeat_s). "
@@ -490,6 +614,8 @@ def _format_plan_prompt(
         f"Suggested window: T1 exits ~bar {window['t1_exit_bar']}, "
         f"T2 enters ~bar {window['t2_enter_bar']}, overlap ~{window['window_bars']} bars, "
         f"style={window['style']}\n\n"
+        f"{vocal_warning}"
+        f"{zone_hints}"
         f"{t1_table}\n\n"
         f"{t2_table}\n\n"
         "Using the zone data above, output the mix script JSON now."
