@@ -3,8 +3,10 @@ import type { PlayerState } from '../types';
 interface Props {
   playerState:     PlayerState;
   currentBar:      number;
+  startBar:        number;
   totalBars:       number;
   bufferDepthBars: number;
+  trackNumber:     number;
   onSeek:          (bar: number) => void;
   onStop:          () => void;
 }
@@ -21,12 +23,15 @@ const STATE_LABELS: Record<PlayerState, string> = {
 export default function TransportBar({
   playerState,
   currentBar,
+  startBar,
   totalBars,
   bufferDepthBars,
+  trackNumber,
   onSeek,
   onStop,
 }: Props) {
-  const pct       = totalBars > 0 ? currentBar / totalBars : 0;
+  const relBar    = Math.max(0, currentBar - startBar);
+  const pct       = totalBars > 0 ? Math.min(1, relBar / totalBars) : 0;
   const bufferPct = totalBars > 0 ? Math.min(1, bufferDepthBars / totalBars) : 0;
 
   return (
@@ -54,15 +59,18 @@ export default function TransportBar({
         {STATE_LABELS[playerState]}
       </span>
 
-      {/* Bar counter */}
+      {/* Track # + bar counter */}
       <span style={{
         fontFamily: 'var(--font-mono)',
         fontSize: 10,
         color: 'var(--text-3)',
-        width: 64,
         flexShrink: 0,
+        whiteSpace: 'nowrap',
       }}>
-        {String(currentBar).padStart(3, ' ')} / {totalBars}
+        {trackNumber > 0 && (
+          <span style={{ color: 'var(--orange)', marginRight: 6 }}>T{trackNumber}</span>
+        )}
+        {String(relBar).padStart(3, ' ')} / {totalBars}
       </span>
 
       {/* Seek bar */}
@@ -76,9 +84,10 @@ export default function TransportBar({
           cursor: 'pointer',
         }}
         onClick={(e) => {
-          const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-          const bar  = Math.round(((e.clientX - rect.left) / rect.width) * totalBars);
-          onSeek(Math.max(0, Math.min(bar, totalBars - 1)));
+          const rect    = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+          const relBar  = Math.round(((e.clientX - rect.left) / rect.width) * totalBars);
+          const globalBar = startBar + Math.max(0, Math.min(relBar, totalBars - 1));
+          onSeek(globalBar);
         }}
       >
         {/* Buffer indicator */}

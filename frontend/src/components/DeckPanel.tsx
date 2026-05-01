@@ -4,12 +4,11 @@ import type { DjDeck, DjDeckB, LibraryTrack } from '../types';
 interface Props {
   variant:   'a' | 'b';
   deck:      DjDeck | DjDeckB | null;
-  sessionId: string | null;
   track:     LibraryTrack | undefined;
+  reasoning: string;
 }
 
-
-export default function DeckPanel({ variant, deck, sessionId, track }: Props) {
+export default function DeckPanel({ variant, deck, track, reasoning }: Props) {
   const isA      = variant === 'a';
   const accent   = isA ? 'var(--orange)' : 'var(--blue)';
   const accentLo = isA ? 'var(--orange-lo)' : 'var(--blue-lo)';
@@ -88,7 +87,7 @@ export default function DeckPanel({ variant, deck, sessionId, track }: Props) {
 
       {/* Reasoning reveal for deck B */}
       {!isA && (
-        <ReasoningReveal status={deckBStatus} sessionId={sessionId} />
+        <ReasoningReveal status={deckBStatus} reasoning={reasoning} />
       )}
     </div>
   );

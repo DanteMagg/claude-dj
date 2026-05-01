@@ -1,11 +1,13 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { CuePoint, LibraryTrack } from '../types';
 
 interface Props {
-  trackA:     LibraryTrack | undefined;
-  trackB:     LibraryTrack | undefined;
-  currentBar: number;
-  onSeek:     (bar: number) => void;
+  trackA:        LibraryTrack | undefined;
+  trackB:        LibraryTrack | undefined;
+  currentBar:    number;
+  startBar:      number;       // global bar where deck A started (deck_a.start_bar)
+  transitionBar: number | null; // global bar of next transition
+  onSeek:        (bar: number) => void;
 }
 
 function sampleCurve(curve: string, targetBars: number): number[] {
@@ -47,16 +49,30 @@ function drawCurve(
   ctx.globalAlpha = 1;
 }
 
-export default function WaveformStrip({ trackA, trackB, currentBar, onSeek }: Props) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+export default function WaveformStrip({ trackA, trackB, currentBar, startBar, transitionBar, onSeek }: Props) {
+  const canvasRef    = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [canvasW, setCanvasW] = useState(0);
+
+  // Resize observer — updates canvasW state, which re-triggers the draw effect
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const ro = new ResizeObserver(entries => {
+      const w = entries[0]?.contentRect.width ?? container.clientWidth;
+      setCanvasW(Math.round(w));
+    });
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container) return;
 
-    const W = container.clientWidth;
+    const W = canvasW || container.clientWidth;
+    if (W === 0) return;
     const H = 64;
     canvas.width  = W;
     canvas.height = H;
@@ -64,21 +80,24 @@ export default function WaveformStrip({ trackA, trackB, currentBar, onSeek }: Pr
     const ctx = canvas.getContext('2d')!;
     ctx.clearRect(0, 0, W, H);
 
-    const totalBars  = trackA ? Math.max(1, trackA.energy_curve.length) : 128;
-    const playheadX  = (currentBar / totalBars) * W;
-    // Estimate transition start at 75% of total bars (visual approximation)
-    const transX     = W * 0.75;
+    const totalBars    = trackA ? Math.max(1, trackA.energy_curve.length) : 128;
+    // All bar positions are relative to when deck A started playing
+    const relBar       = Math.max(0, currentBar - startBar);
+    const playheadX    = Math.min(W, (relBar / totalBars) * W);
+    // transitionBar is also a global bar — convert to relative
+    const relTransBar  = transitionBar != null ? transitionBar - startBar : null;
+    const transX       = relTransBar != null && relTransBar > 0
+      ? Math.min(W, (relTransBar / totalBars) * W)
+      : W * 0.80;
 
     // ── Deck A curve ────────────────────────────────────────────────────────
     if (trackA?.energy_curve) {
       const samplesA = sampleCurve(trackA.energy_curve, totalBars);
-      // Past portion (dimmed)
-      const pastSamples = samplesA.slice(0, currentBar);
-      drawCurve(ctx, pastSamples, W, H, 0, playheadX,
+      // Split at relBar (position within this track), not global currentBar
+      const splitIdx = Math.min(samplesA.length, Math.round(relBar));
+      drawCurve(ctx, samplesA.slice(0, splitIdx), W, H, 0, playheadX,
         'rgba(255,95,0,0.15)', 'rgba(255,95,0,0.15)', 1);
-      // Future portion (bright)
-      const futureSamples = samplesA.slice(currentBar);
-      drawCurve(ctx, futureSamples, W, H, playheadX, W,
+      drawCurve(ctx, samplesA.slice(splitIdx), W, H, playheadX, W,
         'rgba(255,95,0,0.85)', 'rgba(255,95,0,0.2)', 1);
     }
 
@@ -121,14 +140,15 @@ export default function WaveformStrip({ trackA, trackB, currentBar, onSeek }: Pr
     ctx.strokeStyle = 'rgba(255,255,255,0.6)';
     ctx.lineWidth = 2;
     ctx.stroke();
-  }, [trackA, trackB, currentBar]);
+  }, [trackA, trackB, currentBar, startBar, transitionBar, canvasW]);
 
   const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = canvasRef.current!.getBoundingClientRect();
     const x    = e.clientX - rect.left;
     const totalBars = trackA ? Math.max(1, trackA.energy_curve.length) : 128;
-    const bar  = Math.round((x / rect.width) * totalBars);
-    onSeek(Math.max(0, Math.min(bar, totalBars - 1)));
+    const relBar = Math.round((x / rect.width) * totalBars);
+    // Convert back to global bar for the seek handler
+    onSeek(Math.max(0, startBar + Math.min(relBar, totalBars - 1)));
   };
 
   return (

@@ -7,12 +7,13 @@ import LibraryDrawer from './components/LibraryDrawer';
 import { useDjSession } from './hooks/useDjSession';
 import { useLibrary } from './hooks/useLibrary';
 import { usePlayer } from './hooks/usePlayer';
+import { useTransitionLog } from './hooks/useTransitionLog';
 import type { DjStartOpts } from './types';
 
 const DRAWER_OPEN_KEY = 'claude-dj:drawer-open';
 
 export default function App() {
-  const [model,      setModel]      = useState('claude-sonnet-4-6');
+  const [model,      setModel]      = useState('claude-haiku-4-5-20251001');
   const [claudePick, setClaudePick] = useState(true);
   const [localQueue, setLocalQueue] = useState<string[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(
@@ -28,6 +29,7 @@ export default function App() {
     : 128;
 
   const { playerState, currentBar, bufferDepthBars, seek, stop: stopPlayer } = usePlayer(sessionId);
+  const transitionLog = useTransitionLog(djId);
 
   // Open drawer automatically if library is empty
   useEffect(() => {
@@ -49,7 +51,7 @@ export default function App() {
   const handleStart = useCallback((opts: Omit<DjStartOpts, 'pool' | 'queue'>) => {
     startDj({
       ...opts,
-      pool:  localQueue.length > 0 ? [] : tracks.map(t => t.hash),
+      pool:  tracks.map(t => t.hash),
       queue: localQueue,
     });
     setLocalQueue([]);
@@ -76,7 +78,34 @@ export default function App() {
   const queuedHashes = djState?.queue ?? localQueue;
 
   const trackA = djState?.deck_a ? trackByHash(djState.deck_a.hash) : undefined;
-  const trackB = djState?.deck_b ? trackByTitle(djState.deck_b.title) : undefined;
+  const deckB  = djState?.deck_b ?? null;
+  const trackB = deckB
+    ? (deckB.hash ? trackByHash(deckB.hash) : trackByTitle(deckB.title))
+    : undefined;
+
+  // Only expose reasoning text when deck B has finished planning (status = 'ready').
+  // While still working (analyzing/planning/loading), pass '' so the status badge
+  // shows and the typewriter doesn't fire on stale text.
+  const latestReasoning = (() => {
+    if (djState?.deck_b?.status !== 'ready') return '';
+    const full = djState?.script?.reasoning ?? '';
+    const parts = full.split(/\n---\n/);
+    return parts[parts.length - 1].trim();
+  })();
+
+  // Derive actual transition bar from planned script:
+  // find the first upcoming fade_in for a track that isn't deck A,
+  // with start_bar AFTER the current deck A's start (to skip past transitions in the merged script).
+  const transitionBar = (() => {
+    const deckAId  = djState?.deck_a?.track_id;
+    const deckAStart = djState?.deck_a?.start_bar ?? 0;
+    const act = djState?.script?.actions?.find(
+      a => a.type === 'fade_in'
+        && a.track !== deckAId
+        && (a.start_bar ?? 0) > deckAStart,
+    );
+    return act ? (act.start_bar ?? null) : null;
+  })();
 
   return (
     <div style={{
@@ -94,6 +123,7 @@ export default function App() {
         model={model}
         claudePick={claudePick}
         error={djError}
+        canStart={tracks.length > 0}
         onStart={handleStart}
         onStop={handleStop}
         onModelChange={setModel}
@@ -103,7 +133,7 @@ export default function App() {
       <DeckRow
         deckA={djState?.deck_a ?? null}
         deckB={djState?.deck_b ?? null}
-        sessionId={sessionId}
+        reasoning={latestReasoning}
         trackByHash={trackByHash}
         trackByTitle={trackByTitle}
       />
@@ -112,14 +142,18 @@ export default function App() {
         trackA={trackA}
         trackB={trackB}
         currentBar={currentBar}
+        startBar={djState?.deck_a?.start_bar ?? 0}
+        transitionBar={transitionBar}
         onSeek={handleSeek}
       />
 
       <TransportBar
         playerState={playerState}
         currentBar={currentBar}
+        startBar={djState?.deck_a?.start_bar ?? 0}
         totalBars={totalBars}
         bufferDepthBars={bufferDepthBars}
+        trackNumber={djState?.deck_a ? parseInt(djState.deck_a.track_id.replace('T', '')) : 0}
         onSeek={handleSeek}
         onStop={handleStop}
       />
@@ -134,6 +168,7 @@ export default function App() {
         onScan={handleScan}
         onEnqueue={handleEnqueue}
         trackByHash={trackByHash}
+        transitionLog={transitionLog}
       />
     </div>
   );

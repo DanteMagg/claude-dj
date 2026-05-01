@@ -12,11 +12,17 @@ export function useDjSession() {
     if (!djId) return;
     pollRef.current = setInterval(async () => {
       try {
-        const res   = await apiFetch(`/api/dj/${djId}`);
+        const res = await apiFetch(`/api/dj/${djId}`);
+        if (res.status === 404) {
+          clearInterval(pollRef.current!);
+          setDjId(null);
+          setDjState(null);
+          return;
+        }
         const state = (await res.json()) as DjState;
         setDjState(state);
         if (state.status === 'error') {
-          setError(state.error);
+          setError(state.error ?? 'unknown error');
           clearInterval(pollRef.current!);
         }
       } catch { /* ignore transient */ }

@@ -267,13 +267,20 @@ export default function LibraryPanel({
         />
       </div>
 
-      {/* Column headers */}
+      {/* Column headers + queue-all */}
       <div className="lib-cols">
         <span style={{ width: 12 }} />
         <span className="lib-col-hd" style={{ flex: 1 }}>TRACK</span>
         <span className="lib-col-hd" style={{ width: 80 }}>WAVE</span>
         <span className="lib-col-hd" style={{ width: 54, textAlign: "right" }}>BPM / KEY</span>
-        <span style={{ width: 30 }} />
+        <button
+          className="lib-queue-all-btn"
+          title="Queue all visible tracks"
+          disabled={filtered.length === 0}
+          onClick={() => filtered.forEach(t => enqueueViaApi(t.hash))}
+        >
+          +ALL
+        </button>
       </div>
 
       {/* Track list */}
@@ -354,6 +361,16 @@ export default function LibraryPanel({
           font-size: 9px; font-weight: 600; letter-spacing: .1em;
           color: var(--text-3); text-transform: uppercase; font-family: var(--mono);
         }
+
+        .lib-queue-all-btn {
+          font-family: var(--mono); font-size: 9px; font-weight: 700;
+          letter-spacing: .08em; padding: 2px 6px; border-radius: 3px;
+          background: var(--surface3); color: var(--text-3);
+          border: 1px solid var(--border2); white-space: nowrap;
+          transition: color .1s, border-color .1s;
+        }
+        .lib-queue-all-btn:not(:disabled):hover { color: var(--blue); border-color: var(--blue); }
+        .lib-queue-all-btn:disabled { opacity: .3; cursor: not-allowed; }
 
         .lib-list { flex: 1; overflow-y: auto; }
         .lib-empty {

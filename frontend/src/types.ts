@@ -40,8 +40,9 @@ export interface DjDeck {
 }
 
 export interface DjDeckB {
-  status: 'starting' | 'analyzing' | 'planning' | 'loading' | 'ready';
+  status: 'starting' | 'analyzing' | 'selecting' | 'planning' | 'loading' | 'ready';
   title: string;
+  hash?: string;
 }
 
 export interface MixAction {
@@ -69,7 +70,7 @@ export interface MixScript {
 }
 
 export interface DjState {
-  status: 'starting' | 'playing' | 'error';
+  status: 'starting' | 'playing' | 'stopped' | 'error';
   session_id: string | null;
   deck_a: DjDeck | null;
   deck_b: DjDeckB | null;

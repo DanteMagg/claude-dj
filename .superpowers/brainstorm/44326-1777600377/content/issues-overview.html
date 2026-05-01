@@ -1,0 +1,42 @@
+<h2>Claude DJ — Issues to Resolve</h2>
+<p class="subtitle">Before we redesign, let's align on what's broken and what we're fixing. Select all the issues that feel most critical to you.</p>
+
+<div class="options" data-multiselect>
+  <div class="option" data-choice="transition" onclick="toggleSelect(this)">
+    <div class="letter">1</div>
+    <div class="content">
+      <h3>Transitions don't actually happen</h3>
+      <p>Song 1 played indefinitely — UI showed deck B as "ready" but the actual audio never crossfaded into Song 2. The mix script existed but wasn't executing in the audio stream.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="ux-clarity" onclick="toggleSelect(this)">
+    <div class="letter">2</div>
+    <div class="content">
+      <h3>UX / design is unclear</h3>
+      <p>Hard to tell what state the app is in. What's playing? What's coming next? What is Claude doing right now? The visual hierarchy doesn't communicate the two-deck model clearly.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="reasoning" onclick="toggleSelect(this)">
+    <div class="letter">3</div>
+    <div class="content">
+      <h3>No Claude reasoning visible</h3>
+      <p>Claude plans every transition and picks every track — but none of that thinking is surfaced. Users have no idea why a song was chosen or how the transition was designed.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="status" onclick="toggleSelect(this)">
+    <div class="letter">4</div>
+    <div class="content">
+      <h3>Status indicators are confusing</h3>
+      <p>"Planning", "Analyzing", "Loading", "Ready" — these labels appear and disappear with no clear meaning. Progress during the ~50s wait is opaque.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="deck-model" onclick="toggleSelect(this)">
+    <div class="letter">5</div>
+    <div class="content">
+      <h3>Two-deck model isn't visible</h3>
+      <p>Real DJ software shows two turntables. There's no intuitive representation of "Deck A playing, Deck B preparing". The crossfader and channel concept is absent.</p>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:24px">Open at <strong>http://localhost:51863</strong> · Select all that apply, then reply in the terminal</p>

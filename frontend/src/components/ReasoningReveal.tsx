@@ -1,61 +1,55 @@
 import { useEffect, useRef, useState } from 'react';
-import { apiFetch } from '../api';
 
 interface Props {
-  status: string;       // deck_b.status: 'analyzing' | 'planning' | 'loading' | 'ready'
-  sessionId: string | null;
+  status:    string;    // deck_b.status
+  reasoning: string;   // djState.script.reasoning (latest segment already extracted by parent)
 }
 
 const STATUS_LABELS: Record<string, string> = {
-  starting:  'Starting…',
-  analyzing: 'Analyzing track…',
-  planning:  'Planning transition…',
-  loading:   'Loading audio…',
+  starting:   'Starting…',
+  analyzing:  'Analyzing track…',
+  selecting:  'Selecting transition window…',
+  planning:   'Deep zone analysis + planning…',
+  loading:    'Loading audio…',
 };
 
-export default function ReasoningReveal({ status, sessionId }: Props) {
-  const [fullText,   setFullText]   = useState('');
-  const [displayed,  setDisplayed]  = useState('');
-  const [fetchedFor, setFetchedFor] = useState<string | null>(null);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const posRef   = useRef(0);
+export default function ReasoningReveal({ status, reasoning }: Props) {
+  const [displayed, setDisplayed] = useState('');
+  // Use a ref (not state) to track which reasoning string we started typing.
+  // Using state here causes a re-render that triggers the effect cleanup, which
+  // cancels the interval before even one character is typed.
+  const startedRef = useRef('');
+  const timerRef   = useRef<ReturnType<typeof setInterval> | null>(null);
+  const posRef     = useRef(0);
 
-  // Fetch script.reasoning once session is ready
+  // Kick off typewriter whenever `reasoning` arrives or changes.
+  // Only `reasoning` in the deps array — changes to startedRef don't cause re-runs.
   useEffect(() => {
-    if (status !== 'ready' || !sessionId || fetchedFor === sessionId) return;
-    setFetchedFor(sessionId);
-    apiFetch(`/api/script/${sessionId}`)
-      .then(r => r.json())
-      .then((s: { reasoning?: string }) => { if (s.reasoning) setFullText(s.reasoning); })
-      .catch(() => {});
-  }, [status, sessionId, fetchedFor]);
-
-  // Typewriter reveal when fullText arrives
-  useEffect(() => {
-    if (!fullText) return;
+    if (!reasoning || reasoning === startedRef.current) return;
+    startedRef.current = reasoning;
     posRef.current = 0;
     setDisplayed('');
     clearInterval(timerRef.current!);
     timerRef.current = setInterval(() => {
       posRef.current += 2;
-      setDisplayed(fullText.slice(0, posRef.current));
-      if (posRef.current >= fullText.length) clearInterval(timerRef.current!);
+      setDisplayed(reasoning.slice(0, posRef.current));
+      if (posRef.current >= reasoning.length) clearInterval(timerRef.current!);
     }, 40);
     return () => clearInterval(timerRef.current!);
-  }, [fullText]);
+  }, [reasoning]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Reset when deck_b cycles to a new track
+  // Reset when a new track starts being analyzed on deck B
   useEffect(() => {
-    if (status === 'analyzing' || status === 'starting') {
-      setFullText('');
+    if (status === 'analyzing' || status === 'selecting' || status === 'starting') {
+      clearInterval(timerRef.current!);
       setDisplayed('');
-      setFetchedFor(null);
+      startedRef.current = '';
       posRef.current = 0;
     }
   }, [status]);
 
-  const label = STATUS_LABELS[status];
-  const isWorking = label !== undefined && !displayed;
+  const label     = STATUS_LABELS[status];
+  const isWorking = !!label && !displayed;
 
   if (!isWorking && !displayed) return null;
 
@@ -82,9 +76,10 @@ export default function ReasoningReveal({ status, sessionId }: Props) {
           color: 'var(--text-2)',
           lineHeight: 1.65,
           fontFamily: 'var(--font-ui)',
+          margin: 0,
         }}>
           {displayed}
-          {displayed.length < fullText.length && (
+          {displayed.length < startedRef.current.length && (
             <span style={{
               display: 'inline-block',
               width: 6, height: 10,

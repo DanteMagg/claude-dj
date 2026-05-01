@@ -1,13 +1,14 @@
 import type { DjStartOpts } from '../types';
 
 const MODELS = [
-  { id: 'claude-sonnet-4-6',         label: 'Sonnet 4.6' },
-  { id: 'claude-opus-4-7',           label: 'Opus 4.7'   },
-  { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5'  },
+  { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5 (recommended)' },
+  { id: 'claude-sonnet-4-6',         label: 'Sonnet 4.6'              },
+  { id: 'claude-opus-4-7',           label: 'Opus 4.7'                },
 ];
 
 interface Props {
   isActive:      boolean;
+  canStart:      boolean;
   refBpm:        number | null;
   model:         string;
   claudePick:    boolean;
@@ -19,7 +20,7 @@ interface Props {
 }
 
 export default function TopBar({
-  isActive, refBpm, model, claudePick, error,
+  isActive, canStart, refBpm, model, claudePick, error,
   onStart, onStop, onModelChange, onClaudePickChange,
 }: Props) {
   return (
@@ -107,6 +108,8 @@ export default function TopBar({
           ? onStop()
           : onStart({ let_claude_pick: claudePick, model })
         }
+        disabled={!isActive && !canStart}
+        title={!isActive && !canStart ? 'Scan a folder first' : undefined}
         style={{
           fontFamily: 'var(--font-mono)',
           fontSize: 10,
@@ -117,6 +120,8 @@ export default function TopBar({
           background: isActive ? 'rgba(255,55,95,0.1)' : 'rgba(255,95,0,0.12)',
           color: isActive ? 'var(--red)' : 'var(--orange)',
           border: `1px solid ${isActive ? 'var(--red)' : 'var(--orange)'}`,
+          opacity: (!isActive && !canStart) ? 0.4 : 1,
+          cursor: (!isActive && !canStart) ? 'not-allowed' : 'pointer',
         }}
       >
         {isActive ? 'STOP' : 'START'}
