@@ -234,6 +234,198 @@ def _find_transition_windows(bar_features: list[dict]) -> list:
     return [w for _, w in windows[:3]]
 
 
+def _load_full_bar_features(
+    audio_path: str,
+    bpm: float,
+    first_downbeat_s: float,
+    n_bars: int,
+    stems: Optional[StemPaths],
+) -> list[dict]:
+    """
+    Compute per-bar {drums, harmonic, vocals, rms} for the full track.
+    Returns list of dicts indexed 0..n_bars-1. Uses Demucs stems if available,
+    HPSS fallback otherwise.
+    """
+    secs_per_bar = 4 * 60.0 / bpm
+    total_dur = n_bars * secs_per_bar
+
+    # Load mix audio for RMS
+    y_mix, sr = librosa.load(
+        audio_path, sr=ANALYSIS_SR, mono=True,
+        offset=first_downbeat_s, duration=total_dur,
+    )
+    if len(y_mix) == 0:
+        return []
+
+    cache_dir = CACHE_DIR / file_hash(audio_path)
+    drums_path  = cache_dir / "stems" / "drums.wav"
+    bass_path   = cache_dir / "stems" / "bass.wav"
+    other_path  = cache_dir / "stems" / "other.wav"
+    vocals_path = cache_dir / "stems" / "vocals.wav"
+
+    has_demucs = stems is not None and drums_path.exists() and bass_path.exists()
+
+    if has_demucs:
+        y_drums, _ = librosa.load(str(drums_path),  sr=ANALYSIS_SR, mono=True,
+                                   offset=first_downbeat_s, duration=total_dur)
+        y_bass,  _ = librosa.load(str(bass_path),   sr=ANALYSIS_SR, mono=True,
+                                   offset=first_downbeat_s, duration=total_dur)
+        if vocals_path.exists():
+            y_voc, _ = librosa.load(str(vocals_path), sr=ANALYSIS_SR, mono=True,
+                                    offset=first_downbeat_s, duration=total_dur)
+        else:
+            y_voc = np.zeros_like(y_mix)
+        if other_path.exists():
+            y_other, _ = librosa.load(str(other_path), sr=ANALYSIS_SR, mono=True,
+                                      offset=first_downbeat_s, duration=total_dur)
+        else:
+            y_other = np.zeros_like(y_mix)
+        min_len = min(len(y_mix), len(y_drums), len(y_bass))
+        y_mix, y_drums, y_bass = y_mix[:min_len], y_drums[:min_len], y_bass[:min_len]
+        y_other = y_other[:min_len] if len(y_other) >= min_len else np.pad(y_other, (0, min_len - len(y_other)))
+        y_voc   = y_voc[:min_len]   if len(y_voc)   >= min_len else np.pad(y_voc,   (0, min_len - len(y_voc)))
+        y_harm  = y_bass + y_other
+    else:
+        y_harm, y_drums = librosa.effects.hpss(y_mix, margin=3.0)
+        y_voc = np.zeros_like(y_mix)
+
+    mix_peak  = float(np.sqrt(np.mean(y_mix   ** 2))) + 1e-9
+    drum_peak = float(np.sqrt(np.mean(y_drums ** 2))) + 1e-9
+    harm_peak = float(np.sqrt(np.mean(y_harm  ** 2))) + 1e-9
+    voc_peak  = float(np.sqrt(np.mean(y_voc   ** 2))) + 1e-9
+
+    features: list[dict] = []
+    for i in range(n_bars):
+        s = int(i * secs_per_bar * sr)
+        e = int((i + 1) * secs_per_bar * sr)
+        if s >= len(y_mix):
+            break
+        e = min(e, len(y_mix))
+
+        rms   = float(np.sqrt(np.mean(y_mix[s:e]   ** 2))) / mix_peak
+        drums = float(np.sqrt(np.mean(y_drums[s:e]  ** 2))) / drum_peak
+        harm  = float(np.sqrt(np.mean(y_harm[s:e]   ** 2))) / harm_peak
+        voc   = float(np.sqrt(np.mean(y_voc[s:e]    ** 2))) / voc_peak
+
+        # Apply same 1.5x boost for legibility as in analyze_transition_zone
+        features.append({
+            "bar":      i,
+            "drums":    round(min(1.0, drums * 1.5), 3),
+            "harmonic": round(min(1.0, harm  * 1.5), 3),
+            "vocals":   round(min(1.0, voc),          3),
+            "rms":      round(min(1.0, rms),           3),
+        })
+    return features
+
+
+def build_mixing_profile(
+    audio_path: str,
+    bpm: float,
+    first_downbeat_s: float,
+    n_bars: int,
+    stems: Optional[StemPaths],
+    no_stems: bool,
+    title: str,
+    key_camelot: str,
+    duration_s: float,
+    sections: list,
+) -> "MixingProfile":
+    """
+    Phase 0: compute a MixingProfile for a track once and cache it.
+    Makes one claude-haiku API call (max 200 tokens) for dj_notes.
+    """
+    from schema import MixingProfile
+
+    if no_stems or stems is None:
+        # Still compute transition windows from mix audio RMS; skip vocal analysis
+        bar_features = _load_full_bar_features(audio_path, bpm, first_downbeat_s, n_bars, None)
+        vocal_bars: list = []
+        loop_cands = []
+        tw = _find_transition_windows(bar_features)
+        intro = _classify_intro(bar_features[:8] if bar_features else [])
+        outro = _classify_outro(bar_features[-16:] if bar_features else [])
+        dj_notes = "[stems unavailable — vocal analysis skipped]"
+        return MixingProfile(
+            vocal_bars=vocal_bars,
+            loop_candidates=loop_cands,
+            transition_windows=tw,
+            intro_type=intro,
+            outro_type=outro,
+            dj_notes=dj_notes,
+        )
+
+    bar_features = _load_full_bar_features(audio_path, bpm, first_downbeat_s, n_bars, stems)
+    if not bar_features:
+        return MixingProfile(
+            vocal_bars=[], loop_candidates=[], transition_windows=[],
+            intro_type="silent", outro_type="fade-silence",
+            dj_notes="[analysis unavailable — no bar data]",
+        )
+
+    # Vocal map
+    voc_rms_list = [b["vocals"] for b in bar_features]
+    vocal_bars = _build_vocal_regions(voc_rms_list)
+
+    loop_cands  = _find_loop_candidates(bar_features)
+    tw          = _find_transition_windows(bar_features)
+    intro       = _classify_intro(bar_features[:8])
+    outro       = _classify_outro(bar_features[-16:])
+
+    # API call for dj_notes
+    section_summary = " ".join(
+        f"{s.label}(b{s.start_bar}-{s.end_bar})" for s in sections
+    ) if sections else "unknown"
+
+    payload = {
+        "title": title,
+        "bpm": round(bpm, 1),
+        "key": key_camelot,
+        "duration_s": round(duration_s, 1),
+        "section_summary": section_summary,
+        "vocal_bars": [[s, e] for s, e in vocal_bars],
+        "loop_candidates": [
+            {"start_bar": lc.start_bar, "bars": lc.bars, "reason": lc.reason}
+            for lc in loop_cands
+        ],
+        "transition_windows": [
+            {"bar": tw_.bar, "quality": tw_.quality, "character": tw_.character}
+            for tw_ in tw
+        ],
+        "intro_type": intro,
+        "outro_type": outro,
+    }
+
+    dj_notes = "[dj_notes unavailable]"
+    try:
+        import anthropic as _anthropic
+        client = _anthropic.Anthropic()
+        resp = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=200,
+            system=(
+                "You are a DJ reading a track before playing it. "
+                "Given structured analysis data, write a concise mixing brief (3-5 sentences) "
+                "describing: where vocals are active and what to avoid, the best transition-out "
+                "window and why, any strong loop candidates, and one sentence on the track's "
+                "overall character for mixing. Be specific about bar numbers."
+            ),
+            messages=[{"role": "user", "content": json.dumps(payload)}],
+        )
+        dj_notes = resp.content[0].text.strip()
+    except Exception as exc:
+        print(f"  [build_mixing_profile] dj_notes API call failed ({exc}) — skipping")
+        dj_notes = "[dj_notes unavailable]"
+
+    return MixingProfile(
+        vocal_bars=[[s, e] for s, e in vocal_bars],
+        loop_candidates=loop_cands,
+        transition_windows=tw,
+        intro_type=intro,
+        outro_type=outro,
+        dj_notes=dj_notes,
+    )
+
+
 def file_hash(path: str) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -705,6 +897,26 @@ def analyze_track(audio_path: str, track_id: str, no_stems: bool = False) -> Tra
     # Cue points derived from semantic sections + energy curve
     cue_points = _cue_points_from_sections(sections, energy_curve, n_bars)
 
+    # Phase 0: build mixing profile (cached; skip if already in analysis.json)
+    mixing_profile = None
+    if not no_stems and stem_paths is not None:
+        try:
+            print("  [analyze] building mixing profile (Phase 0)")
+            mixing_profile = build_mixing_profile(
+                audio_path=audio_path,
+                bpm=bpm,
+                first_downbeat_s=first_downbeat_s,
+                n_bars=n_bars,
+                stems=stem_paths,
+                no_stems=no_stems,
+                title=Path(audio_path).stem,
+                key_camelot=key.camelot,
+                duration_s=duration_s,
+                sections=sections,
+            )
+        except Exception as exc:
+            print(f"  [analyze] WARNING: build_mixing_profile failed ({exc}) — skipping")
+
     title = Path(audio_path).stem
     artist = "Unknown"
     try:
@@ -732,6 +944,7 @@ def analyze_track(audio_path: str, track_id: str, no_stems: bool = False) -> Tra
         sections=sections,
         cue_points=cue_points,
         stems=stem_paths or StemPaths(vocals="", drums="", bass="", other=""),
+        mixing_profile=mixing_profile,
     )
 
     d = analysis.to_dict()
@@ -757,6 +970,24 @@ def _dict_to_analysis(d: dict) -> TrackAnalysis:
     # migrate renamed field from old cache files
     if "loudness_lufs" in d:
         d["loudness_dbfs"] = d.pop("loudness_lufs")
+
+    # Optional MixingProfile — absent in old caches
+    profile_data = d.pop("mixing_profile", None)
+    if profile_data:
+        from schema import LoopCandidate, MixingProfile, TransitionWindow
+        d["mixing_profile"] = MixingProfile(
+            vocal_bars=profile_data.get("vocal_bars", []),
+            loop_candidates=[
+                LoopCandidate(**lc) for lc in profile_data.get("loop_candidates", [])
+            ],
+            transition_windows=[
+                TransitionWindow(**tw) for tw in profile_data.get("transition_windows", [])
+            ],
+            intro_type=profile_data.get("intro_type", "silent"),
+            outro_type=profile_data.get("outro_type", "fade-silence"),
+            dj_notes=profile_data.get("dj_notes", ""),
+        )
+
     return TrackAnalysis(**d)
 
 

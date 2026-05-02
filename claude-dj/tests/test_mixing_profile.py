@@ -136,3 +136,104 @@ def test_transition_windows_max_three_returned():
              "vocals": 0.05, "rms": 0.25} for i in range(64)]
     windows = _find_transition_windows(bars)
     assert len(windows) <= 3
+
+
+def test_no_stems_returns_profile_with_empty_vocals():
+    """build_mixing_profile with no_stems=True: vocal_bars empty, dj_notes contains stems note."""
+    from unittest.mock import patch
+    from analyze import build_mixing_profile
+    from schema import StemPaths
+
+    fake_bar_features = [
+        {"bar": i, "drums": 0.60, "harmonic": 0.05, "vocals": 0.0, "rms": 0.25}
+        for i in range(32)
+    ]
+
+    with patch("analyze._load_full_bar_features", return_value=fake_bar_features):
+        profile = build_mixing_profile(
+            audio_path="/fake/track.wav",
+            bpm=128.0,
+            first_downbeat_s=0.0,
+            n_bars=32,
+            stems=None,
+            no_stems=True,
+            title="Test Track",
+            key_camelot="8B",
+            duration_s=60.0,
+            sections=[],
+        )
+    assert profile.vocal_bars == []
+    assert "[stems unavailable" in profile.dj_notes
+
+
+def test_dict_to_analysis_handles_missing_mixing_profile():
+    """Old cache files without mixing_profile field deserialize cleanly."""
+    import dataclasses, json
+    from schema import BarGrid, CuePoint, KeyInfo, Section, SectionStems, StemPresence, StemPaths, TrackAnalysis
+    from analyze import _dict_to_analysis
+
+    key = KeyInfo(camelot="8B", standard="C major", mode="major", tonic="C")
+    stem = StemPresence(presence=0, rms_db=-80.0)
+    stems = SectionStems(drums=stem, bass=stem, vocals=stem, other=stem)
+    section = Section(
+        label="groove", start_bar=0, end_bar=16, start_s=0.0, end_s=30.0,
+        energy=5, loudness_dbfs=-12.0, stems=stems,
+    )
+    a = TrackAnalysis(
+        id="T1", title="Test", artist="A", file="/t.mp3",
+        duration_s=120.0, bpm=128.0, first_downbeat_s=0.0,
+        key=key, energy_overall=5, loudness_dbfs=-12.0,
+        bar_grid=BarGrid(n_bars=64, beats_per_bar=4),
+        energy_curve_per_bar="5" * 64,
+        sections=[section],
+        cue_points=[CuePoint(name="mix_in", bar=0, type="phrase_start")],
+        stems=StemPaths(vocals="", drums="", bass="", other=""),
+    )
+    d = dataclasses.asdict(a)
+    # Simulate old cache — no mixing_profile key
+    d.pop("mixing_profile", None)
+    result = _dict_to_analysis(d)
+    assert result.mixing_profile is None
+
+
+def test_dict_to_analysis_deserializes_mixing_profile():
+    """Cached analysis with mixing_profile round-trips to MixingProfile object."""
+    import dataclasses
+    from schema import (
+        BarGrid, CuePoint, KeyInfo, LoopCandidate, MixingProfile, Section,
+        SectionStems, StemPresence, StemPaths, TrackAnalysis, TransitionWindow,
+    )
+    from analyze import _dict_to_analysis
+
+    key = KeyInfo(camelot="8B", standard="C major", mode="major", tonic="C")
+    stem = StemPresence(presence=0, rms_db=-80.0)
+    stems_dc = SectionStems(drums=stem, bass=stem, vocals=stem, other=stem)
+    section = Section(
+        label="groove", start_bar=0, end_bar=16, start_s=0.0, end_s=30.0,
+        energy=5, loudness_dbfs=-12.0, stems=stems_dc,
+    )
+    profile = MixingProfile(
+        vocal_bars=[[4, 8]],
+        loop_candidates=[LoopCandidate(start_bar=80, bars=8, reason="clean")],
+        transition_windows=[TransitionWindow(bar=80, quality=8, character="drums-only")],
+        intro_type="drums-only",
+        outro_type="fade-silence",
+        dj_notes="Test.",
+    )
+    a = TrackAnalysis(
+        id="T1", title="Test", artist="A", file="/t.mp3",
+        duration_s=120.0, bpm=128.0, first_downbeat_s=0.0,
+        key=key, energy_overall=5, loudness_dbfs=-12.0,
+        bar_grid=BarGrid(n_bars=64, beats_per_bar=4),
+        energy_curve_per_bar="5" * 64,
+        sections=[section],
+        cue_points=[CuePoint(name="mix_in", bar=0, type="phrase_start")],
+        stems=StemPaths(vocals="", drums="", bass="", other=""),
+        mixing_profile=profile,
+    )
+    d = dataclasses.asdict(a)
+    result = _dict_to_analysis(d)
+    assert result.mixing_profile is not None
+    assert result.mixing_profile.intro_type == "drums-only"
+    assert len(result.mixing_profile.loop_candidates) == 1
+    assert result.mixing_profile.loop_candidates[0].bars == 8
