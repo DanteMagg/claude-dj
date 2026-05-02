@@ -192,19 +192,29 @@ def _find_loop_candidates(bar_features: list[dict]) -> list:
 
 def _find_transition_windows(bar_features: list[dict]) -> list:
     """
-    Find spans of 8+ consecutive bars with rms < _RMS_LOW_THRESH and vocals < _VOC_SAFE_THRESH.
+    Find spans of 8+ consecutive bars that are relatively low-energy and vocal-safe.
+    Uses the track's 30th-percentile RMS as the threshold (floored by _RMS_LOW_THRESH),
+    so dense club tracks with uniformly high RMS still get ranked windows.
     Score and return top 3 TransitionWindow objects ranked best first.
     """
     from schema import TransitionWindow
+
+    if not bar_features:
+        return []
+
+    all_rms = sorted(b["rms"] for b in bar_features)
+    p30 = all_rms[int(len(all_rms) * 0.30)]
+    # Use whichever gives more coverage: absolute threshold or track-relative p30
+    rms_thresh = max(p30, _RMS_LOW_THRESH)
 
     windows: list[tuple[float, TransitionWindow]] = []
     n = len(bar_features)
     i = 0
     while i < n:
         b = bar_features[i]
-        if b["rms"] < _RMS_LOW_THRESH and b["vocals"] < _VOC_SAFE_THRESH:
+        if b["rms"] < rms_thresh and b["vocals"] < _VOC_SAFE_THRESH:
             j = i + 1
-            while j < n and bar_features[j]["rms"] < _RMS_LOW_THRESH and bar_features[j]["vocals"] < _VOC_SAFE_THRESH:
+            while j < n and bar_features[j]["rms"] < rms_thresh and bar_features[j]["vocals"] < _VOC_SAFE_THRESH:
                 j += 1
             span = j - i
             if span >= 8:
@@ -787,6 +797,36 @@ def analyze_track(audio_path: str, track_id: str, no_stems: bool = False) -> Tra
             d = json.load(f)
         d["id"]   = track_id   # always use the caller-assigned id, not the cached one
         d["file"] = audio_path  # always use the current resolved path, not the cached one
+
+        # Phase 0 backfill: if cached analysis has no mixing_profile, compute it now
+        if d.get("mixing_profile") is None:
+            print(f"  [analyze] backfilling mixing_profile for {Path(audio_path).name}")
+            try:
+                stem_paths_raw = d.get("stems", {})
+                stems_obj = None
+                if not no_stems and all(stem_paths_raw.get(k) for k in ("vocals", "drums", "bass", "other")):
+                    from schema import StemPaths as _SP
+                    stems_obj = _SP(**stem_paths_raw)
+                mp = build_mixing_profile(
+                    audio_path=audio_path,
+                    bpm=d["bpm"],
+                    first_downbeat_s=d["first_downbeat_s"],
+                    n_bars=d["bar_grid"]["n_bars"],
+                    stems=stems_obj,
+                    no_stems=(stems_obj is None),
+                    title=d.get("title", Path(audio_path).stem),
+                    key_camelot=d["key"]["camelot"],
+                    duration_s=d["duration_s"],
+                    sections=d.get("sections", []),
+                )
+                import dataclasses as _dc
+                d["mixing_profile"] = _dc.asdict(mp)
+                with open(analysis_cache, "w") as f:
+                    json.dump(d, f, indent=2)
+                print(f"  [analyze] mixing_profile backfilled OK")
+            except Exception as exc:
+                print(f"  [analyze] WARNING: mixing_profile backfill failed ({exc}) — continuing without")
+
         return _dict_to_analysis(d)
 
     print(f"  [analyze] loading {Path(audio_path).name}")
@@ -899,23 +939,22 @@ def analyze_track(audio_path: str, track_id: str, no_stems: bool = False) -> Tra
 
     # Phase 0: build mixing profile (cached; skip if already in analysis.json)
     mixing_profile = None
-    if not no_stems and stem_paths is not None:
-        try:
-            print("  [analyze] building mixing profile (Phase 0)")
-            mixing_profile = build_mixing_profile(
-                audio_path=audio_path,
-                bpm=bpm,
-                first_downbeat_s=first_downbeat_s,
-                n_bars=n_bars,
-                stems=stem_paths,
-                no_stems=no_stems,
-                title=Path(audio_path).stem,
-                key_camelot=key.camelot,
-                duration_s=duration_s,
-                sections=sections,
-            )
-        except Exception as exc:
-            print(f"  [analyze] WARNING: build_mixing_profile failed ({exc}) — skipping")
+    try:
+        print("  [analyze] building mixing profile (Phase 0)")
+        mixing_profile = build_mixing_profile(
+            audio_path=audio_path,
+            bpm=bpm,
+            first_downbeat_s=first_downbeat_s,
+            n_bars=n_bars,
+            stems=stem_paths,
+            no_stems=no_stems,
+            title=Path(audio_path).stem,
+            key_camelot=key.camelot,
+            duration_s=duration_s,
+            sections=sections,
+        )
+    except Exception as exc:
+        print(f"  [analyze] WARNING: build_mixing_profile failed ({exc}) — skipping")
 
     title = Path(audio_path).stem
     artist = "Unknown"

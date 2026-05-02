@@ -546,8 +546,15 @@ def select_transition_window(
     )
 
     # Quick zone peek: 4 bars lead-in + 8 bars past the suggested exit (~12 bars total)
+    # If the mixing profile suggests a better exit window, add a second probe there too.
     peek_section = ""
     peek_rows: list[dict] = []
+    t1_profile = getattr(t1, "mixing_profile", None)
+    profile_window_bar = (
+        t1_profile.transition_windows[0].bar
+        if t1_profile and t1_profile.transition_windows
+        else None
+    )
     try:
         from analyze import analyze_transition_zone as _peek_zone  # local import avoids circular
         peek_rows = _peek_zone(
@@ -555,6 +562,23 @@ def select_transition_window(
             max(0, probe_bar - 4), 12,
         )
         peek_section = _format_peek_rows(peek_rows, probe_bar)
+
+        # If profile suggests a window far from the cue, show it too
+        if profile_window_bar is not None and abs(profile_window_bar - probe_bar) > 8:
+            extra_rows = _peek_zone(
+                t1.file, t1.bpm, t1.first_downbeat_s,
+                max(0, profile_window_bar - 4), 12,
+            )
+            if extra_rows:
+                extra_lines = [f"T1 profile-suggested exit window (bar {profile_window_bar}) — drums/harm/rms/onsets:"]
+                for r in extra_rows:
+                    marker = " ← profile suggestion" if r["bar"] == profile_window_bar else ""
+                    extra_lines.append(
+                        f"  b{r['bar']:3d}: d={r['drums']:.2f} h={r['harmonic']:.2f} "
+                        f"r={r['rms']:.2f} on={r['onsets']}{marker}"
+                    )
+                peek_section += "\n".join(extra_lines) + "\n\n"
+
         logger.debug(
             "Zone peek around T1 exit (probe_bar=%d):\n%s",
             probe_bar,
@@ -943,8 +967,14 @@ def _compute_zone_hints(
     rec_lines = ["RECOMMENDED TECHNIQUE:"]
     avoid_items: list[str] = []
 
-    # Count clean T1 runway
-    t1_clean_bars = [r for r in t1_zone if r.get("rms", 1.0) < 0.35 and r["vocals"] < 0.20]
+    # Count clean T1 runway — use relative threshold so dense club tracks get coverage
+    if t1_zone:
+        t1_rms_vals = sorted(r.get("rms", 1.0) for r in t1_zone)
+        t1_rms_p40 = t1_rms_vals[int(len(t1_rms_vals) * 0.40)]
+        t1_rms_thresh = max(t1_rms_p40, 0.35)
+    else:
+        t1_rms_thresh = 0.35
+    t1_clean_bars = [r for r in t1_zone if r.get("rms", 1.0) < t1_rms_thresh and r["vocals"] < 0.20]
     clean_runway = len(t1_clean_bars)
 
     # Camelot distance if tracks provided
