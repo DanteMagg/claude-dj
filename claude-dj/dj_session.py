@@ -214,7 +214,7 @@ async def dj_worker(
         state.deck_b = DjDeckB(status="analyzing", title=first_entry.title)
         first_analysis = await loop.run_in_executor(
             _bg_executor, _analyze_track,
-            first_entry.path, "T1", True,
+            first_entry.path, "T1", False,
         )
     except Exception as exc:
         state.status = "error"
@@ -307,7 +307,7 @@ async def dj_worker(
             from analyze import analyze_track as _analyze_track
             next_analysis = await loop.run_in_executor(
                 _bg_executor, _analyze_track,
-                next_entry.path, next_id, True,
+                next_entry.path, next_id, False,
             )
         except Exception as exc:
             print(f"[dj_worker] analyze {next_id} failed: {exc}")
