@@ -699,38 +699,29 @@ def render(script: MixScript, output_path: str, export_mp3: bool = False) -> str
                 layers[tid] = layers[tid].overlay(clip, position=at_ms)
 
         elif action.type == "fade_out":
-            # Track-local: fades and silences only this track's layer.
-            # Bass-first fade: HPF from start to kill low-end bleed during overlap,
-            # then linear gain ramp to silence. This mirrors the real-DJ technique of
-            # cutting the low EQ knob before fading the channel out.
+            # Apply a gain ramp to the fade window only. Do NOT silence the tail —
+            # a subsequent play action on the same track (e.g. loop resume, or a
+            # 3-track blend) may legitimately write audio there. Silencing the tail
+            # here would erase that audio since fade_out may sort before that play.
+            # The silence-after-fade is handled naturally: the gain ramp reaches 0
+            # at fade_out_end_ms and the source audio simply plays at zero gain
+            # from that point (which is silence). Any later play overlay on the
+            # same layer will overwrite that region anyway.
+            #
+            # Bass is cut by the persistent eq(T1, low=0.0) that the normalizer
+            # mandates before every fade_out. No extra HPF needed here.
             fade_ms  = bars_to_ms(action.duration_bars or 8, ref_bpm)
             start_ms = bars_to_ms(action.start_bar or 0, ref_bpm)
             layer    = layers[tid]
+            fade_end_ms = start_ms + fade_ms
 
-            # Phase 1: apply progressive HPF over the fade window so bass disappears
-            # by mid-fade rather than at the very end. Uses 3 keyframe steps:
-            # start → low=1.0 (no cut), mid-fade → low=0.0 (200 Hz HPF), end → low=0.0.
-            bass_cut_ms = start_ms + fade_ms // 2  # bass fully cut at midpoint
-            # Segment 1a: start_ms → bass_cut_ms: bass fades from full to cut
-            seg_a = layer[start_ms:bass_cut_ms]
-            if len(seg_a) > 0:
-                # Smoothly ramp the HPF cutoff: apply eq at low=0.0 (full HPF) to the
-                # whole segment then crossfade from the original for a linear bass ramp.
-                hpf_a = apply_eq(seg_a, 0.0, 1.0, 1.0)
-                # Crossfade: seg_a (original, no HPF) → hpf_a (full HPF)
-                seg_a = _linear_xfade(seg_a, hpf_a, len(seg_a))
-            # Segment 1b: bass_cut_ms → end of fade: HPF sustained (bass already gone)
-            seg_b = layer[bass_cut_ms:start_ms + fade_ms]
-            if len(seg_b) > 0:
-                seg_b = apply_eq(seg_b, 0.0, 1.0, 1.0)
-
-            chunk = seg_a + seg_b if len(seg_a) > 0 else seg_b
-            faded      = _apply_gain_ramp(chunk, 0, 0, fade_ms, 1.0, 0.0)
-            silence_ms = max(0, len(layer) - start_ms - fade_ms)
+            chunk = layer[start_ms:fade_end_ms]
+            faded = _apply_gain_ramp(chunk, 0, 0, fade_ms, 1.0, 0.0)
+            # Replace only the fade window; preserve tail for potential later overlays.
             layers[tid] = (
                 layer[:start_ms]
                 + faded
-                + AudioSegment.silent(duration=silence_ms, frame_rate=target_rate)
+                + layer[fade_end_ms:]
             )
 
         elif action.type == "bass_swap":

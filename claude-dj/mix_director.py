@@ -279,17 +279,18 @@ This is not optional. It is as mandatory as `bass_swap`.
 - `play` / `fade_in` / `fade_out` / `eq` act on **per-track layers** summed at output.
 - **Every `fade_in` MUST be followed by a `play`** at `start_bar + duration_bars` with
   `from_bar = fade_in.from_bar + duration_bars`. Without the `play`, T2 goes silent.
-- `bass_swap` cuts T1's low band (<=200 Hz) to silence and restores T2's bass. **MANDATORY on
-  every blend transition**: omitting it means BOTH kick drums play simultaneously — instant mud.
+- `bass_swap` cuts T1's low band (<=200 Hz) to silence. **MANDATORY on every blend transition**.
+  Required fields: `track` (outgoing), `at_bar` (multiple of 8), **`incoming_track`** (incoming track id).
+  **`incoming_track` is required** — without it the bass stem overlay is skipped entirely.
   Fire ONCE per transition at a phrase boundary (multiple of 8) inside the overlap window, after
   T2's fade_in is ~50% complete.
   **EXACT MECHANICS**: bass_swap cuts T1's bass via an HPF (T1 loses sub). It does NOT automatically
   restore T2's bass — T2's bass was silenced in the fade_in stems (bass=0.0) and stays silent until
   the `play` action fires. The `play` action at `fade_in.start_bar + fade_in.duration_bars` is what
   restores T2's bass (the full mix plays, including bass). So:
-    - fade_in.stems.bass = 0.0  → T2 bass silent
-    - bass_swap at midpoint     → T1 bass cut
-    - play at end of fade_in    → T2 full mix (bass restored)
+    - fade_in.stems.bass = 0.0       → T2 bass silent during intro blend
+    - bass_swap(incoming_track="T2") → T1 bass HPF-cut; T2 bass stem overlaid from swap bar
+    - play at end of fade_in         → T2 full mix takes over (bass confirmed in full mix)
   DO NOT emit a second fade_in or eq to restore T2's bass — the play action handles it.
 - `eq`: **PERSISTENT from `bar` to end of mix** — it does NOT auto-reset. Think of it as a
   channel EQ knob you physically turn: if you turn it down and don't turn it back up, it stays
@@ -330,7 +331,7 @@ max -- cite specific section labels, bar numbers, key move, energy arc, and bass
     {"type": "play",      "track": "T1", "at_bar": 0,  "from_bar": 16},
     {"type": "fade_in",   "track": "T2", "start_bar": 80, "duration_bars": 16, "from_bar": 0,
      "stems": {"drums": 0.8, "bass": 0.0, "vocals": 0.0, "other": 0.6}},
-    {"type": "bass_swap", "track": "T1", "at_bar": 88},
+    {"type": "bass_swap", "track": "T1", "at_bar": 88, "incoming_track": "T2"},
     {"type": "play",      "track": "T2", "at_bar": 96, "from_bar": 16},
     {"type": "fade_out",  "track": "T1", "start_bar": 88, "duration_bars": 16},
     {"type": "loop",      "track": "T1", "start_bar": 64, "loop_bars": 8, "loop_repeats": 2},
@@ -343,6 +344,7 @@ Bar values depend on context: in a 2-track sub-script (plan_transition), all bar
 track's first downbeat (T1 bar 0 = T1 start, T2 bar 0 = T2 start). In single-track scripts, bars are
 track-local from bar 0. `stems` scalars 0.0-1.0. `eq` values 0.0-1.0 (0=kill, 1=unity).
 `bass_swap.at_bar` and `loop.start_bar` must be multiples of 8.
+`bass_swap` MUST include `"incoming_track": "<T2_id>"` — without it the bass stem restore is skipped and T2's bass stays silent until the play action fires.
 """
 
 
@@ -676,7 +678,7 @@ Annotations: [DROP] [BREAKDOWN] [SILENT] [KICK-IN] [BASS-IN] [KICK-OUT] [BASS-OU
 ### ZONE → ACTION MAPPING
 
 Use the zone data to place actions precisely:
-- `bass_swap.at_bar` = T1 bar where `d+h` is minimum (lowest combined drum+harmonic energy)
+- `bass_swap.at_bar` = T1 bar where `d+h` is minimum (lowest combined drum+harmonic energy); always include `incoming_track` = T2's id
 - `fade_in.start_bar` = T2's first bar where drums are present (d > 0.25) but harmonic is
   not yet (h < 0.20) — enter on the drum hit, before the bass kicks in
 - `fade_out.start_bar` = T1's first [KICK-OUT] or [BREAKDOWN] bar (falling drums edge)
