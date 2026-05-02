@@ -69,7 +69,7 @@ class TrackAnalysis:
     first_downbeat_s: float
     key: KeyInfo
     energy_overall: int
-    loudness_lufs: float
+    loudness_dbfs: float
     bar_grid: BarGrid
     energy_curve_per_bar: str
     sections: list[Section]
@@ -93,7 +93,7 @@ class MixTrackRef:
 
 @dataclass
 class MixAction:
-    type: str  # play | fade_in | fade_out | eq
+    type: str  # play | fade_in | fade_out | eq | bass_swap | loop
     track: str
     # play
     at_bar: Optional[int] = None
@@ -107,6 +107,13 @@ class MixAction:
     low: Optional[float] = None
     mid: Optional[float] = None
     high: Optional[float] = None
+    # bass_swap: outgoing=track, incoming gets bass restored at same bar
+    incoming_track: Optional[str] = None
+    # loop: repeat loop_bars of the source phrase loop_repeats times from start_bar
+    loop_bars: Optional[int] = None
+    loop_repeats: Optional[int] = None
+    # if True (default), silence the original track under the loop window to avoid doubling
+    loop_mute_tail: Optional[bool] = None
 
 
 @dataclass

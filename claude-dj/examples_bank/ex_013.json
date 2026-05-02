@@ -1,0 +1,82 @@
+{
+  "id": "ex_013",
+  "meta": {
+    "genre": "deep_house",
+    "t1_bpm": 123.0,
+    "t2_bpm": 123.0,
+    "t1_camelot": "5A",
+    "t2_camelot": "5B",
+    "camelot_distance": 1,
+    "bpm_delta": 0.0,
+    "exit_section": "groove",
+    "overlap_bars": 16,
+    "scenario": "deep house A to B relative major same BPM, mood brightening minor to major",
+    "source": "Kerri Chandler @ Mixmag BUDX Amsterdam 2019-09-25",
+    "t1_artist": "Kerri Chandler",
+    "t1_title": "Yellow",
+    "t2_artist": "Jerome Sydenham & Kerri Chandler Feat. Troy Denari",
+    "t2_title": "You're In My System"
+  },
+  "transition_arc": "5A (C#m) to 5B (Eb major) \u2014 minor to relative major. Mood brightening. Same BPM (123). T1 from_bar=8 skips sparse 8-bar intro. T2 from_bar=0 genuine percussion-only intro. Groove exit at bar 64 (56 bars played after skipping 8). Minor to major lifts energy and feel despite no BPM change.",
+  "annotated_actions": [
+    {
+      "action": {
+        "type": "play",
+        "track": "T1",
+        "at_bar": 0,
+        "from_bar": 8
+      },
+      "t1_state": "T1 bar 8: first full groove bar, C#m house groove, kick+bass+chords, RMS 0.47",
+      "why": "from_bar=8 skips T1 8-bar percussion-only intro."
+    },
+    {
+      "action": {
+        "type": "fade_out",
+        "track": "T1",
+        "start_bar": 64,
+        "duration_bars": 16
+      },
+      "t1_state": "T1 bar 72 (play bar 64 + from_bar 8): groove, drums=0.55, harmonic=0.45, rms=0.44",
+      "t2_state": "T2 bar 0: light kick+hi-hat intro, bass=0.0, harmonic=0.1, rms=0.20",
+      "why": "T1 at steady groove, not at peak. Minor to major relative move means harmonic blending safe throughout. Exit at play bar 64 is track bar 72 = 9 x 8 clean phrase boundary."
+    },
+    {
+      "action": {
+        "type": "fade_in",
+        "track": "T2",
+        "start_bar": 64,
+        "duration_bars": 16,
+        "from_bar": 0,
+        "stems": {
+          "drums": 0.8,
+          "bass": 0.0,
+          "vocals": 0.0,
+          "other": 0.6
+        }
+      },
+      "t2_state": "T2 bar 0: kick present from bar 0 (drums=0.5), bass=0.0 for first 8 bars, major pads starting",
+      "why": "T2 from_bar=0: genuine groove intro with kick active immediately. other:0.6 brings T2 Eb major chords \u2014 relative major shares all notes with C#m. Mood brightening starts immediately."
+    },
+    {
+      "action": {
+        "type": "bass_swap",
+        "track": "T1",
+        "at_bar": 72,
+        "incoming_track": "T2"
+      },
+      "t1_state": "T1 play bar 72: bass=0.20, drums=0.28 \u2014 fading",
+      "t2_state": "T2 bar 8: bass entering (0.35)",
+      "why": "T2 bass has entered. Swap removes T1 bass. The major Eb bass replacing T1 minor C# bass is the defining moment of the mood lift."
+    },
+    {
+      "action": {
+        "type": "play",
+        "track": "T2",
+        "at_bar": 80,
+        "from_bar": 16
+      },
+      "t2_state": "T2 bar 16: full groove, Eb major, kick+bass+bright chords, RMS 0.52",
+      "why": "T2 full groove at same BPM. Mood lifted \u2014 minor to major transition complete."
+    }
+  ]
+}

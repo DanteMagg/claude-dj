@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude DJ — V3</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:       #1a1a1c;
+  --surface:  #222224;
+  --surface2: #2a2a2c;
+  --line:     rgba(255,255,255,0.09);
+  --text:     #e8e8e8;
+  --text2:    #888;
+  --text3:    #555;
+  --green:    #30d158;
+  --orange:   #ff5f00;
+  --blue:     #4a90e2;
+  --amber:    #e0a020;
+  --sans:     'IBM Plex Sans', system-ui, sans-serif;
+  --mono:     'IBM Plex Mono', monospace;
+}
+
+body {
+  font-family: var(--sans);
+  background: #111;
+  color: var(--text);
+  padding: 20px;
+}
+
+/* ── PAGE HEADER ── */
+.pg-title { font-size: 12px; color: #666; margin-bottom: 16px; font-family: var(--mono); }
+
+/* ── APP ── */
+.app {
+  background: var(--bg);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  overflow: hidden;
+  max-width: 1000px;
+  margin: 0 auto 24px;
+}
+
+/* ── MENU BAR ── */
+.menubar {
+  background: #141416;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  gap: 20px;
+  border-bottom: 1px solid var(--line);
+}
+.menubar-brand {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--orange);
+  letter-spacing: .04em;
+}
+.menubar-items {
+  display: flex;
+  gap: 16px;
+}
+.menubar-item {
+  font-size: 11px;
+  color: var(--text2);
+  cursor: pointer;
+}
+.menubar-item.active { color: var(--text); }
+.menubar-spacer { flex: 1; }
+.menubar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text3);
+}
+.menubar-model { color: var(--text2); }
+
+/* ── BODY LAYOUT ── */
+.body {
+  display: flex;
+  height: 540px;
+}
+
+/* ── LIBRARY ── */
+.lib {
+  width: 210px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  background: #1e1e20;
+}
+.lib-top {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.lib-search {
+  flex: 1;
+  background: #2a2a2c;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 4px 7px;
+  font-size: 11px;
+  font-family: var(--sans);
+  color: var(--text);
+  outline: none;
+}
+.lib-search::placeholder { color: var(--text3); }
+.lib-search:focus { border-color: rgba(255,255,255,0.2); }
+.lib-scan-btn {
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--orange);
+  cursor: pointer;
+  white-space: nowrap;
+  padding: 4px 6px;
+  border: 1px solid rgba(255,95,0,.3);
+  border-radius: 3px;
+}
+.lib-col-headers {
+  display: flex;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--line);
+  background: #1a1a1c;
+}
+.lib-col {
+  font-size: 9px;
+  color: var(--text3);
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.lib-col.title { flex: 1; }
+.lib-col.bpm   { width: 36px; text-align: right; }
+.lib-col.key   { width: 28px; text-align: right; }
+.lib-rows { flex: 1; overflow-y: auto; }
+.lib-row {
+  display: flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  cursor: pointer;
+  gap: 6px;
+}
+.lib-row:hover { background: rgba(255,255,255,.04); }
+.lib-row.playing { background: rgba(255,95,0,.1); border-left: 2px solid var(--orange); padding-left: 8px; }
+.lib-row.next    { background: rgba(74,144,226,.08); border-left: 2px solid var(--blue); padding-left: 8px; }
+.lib-row-title { flex: 1; font-size: 11px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lib-row.playing .lib-row-title { color: var(--orange); font-weight: 500; }
+.lib-row.next    .lib-row-title { color: var(--blue); }
+.lib-row-bpm { font-family: var(--mono); font-size: 10px; color: var(--text3); width: 36px; text-align: right; }
+.lib-row-key { font-family: var(--mono); font-size: 10px; color: var(--text3); width: 28px; text-align: right; }
+.lib-row.playing .lib-row-bpm,
+.lib-row.playing .lib-row-key { color: var(--text2); }
+
+/* ── MAIN ── */
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+/* ── WAVEFORMS ROW ── */
+.waveforms {
+  display: flex;
+  height: 88px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+  background: #141416;
+}
+.wf-section {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+.wf-section + .wf-section { border-left: 1px solid var(--line); }
+.wf-label {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 600;
+  z-index: 2;
+  letter-spacing: .05em;
+}
+.wf-label.a { color: var(--orange); }
+.wf-label.b { color: var(--blue); }
+.wf-playhead {
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 1px;
+  background: rgba(255,255,255,.8);
+  left: 50%;
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* ── DECKS ── */
+.decks {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  border-bottom: 1px solid var(--line);
+}
+.deck {
+  flex: 1;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.deck + .deck { border-left: 1px solid var(--line); }
+
+/* Active deck indicator */
+.deck.active { border-top: 2px solid var(--orange); padding-top: 8px; }
+.deck.cued   { border-top: 2px solid var(--blue); padding-top: 8px; }
+
+.deck-status-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.deck-status-badge {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.deck-status-badge.playing { color: var(--green); }
+.deck-status-badge.ready   { color: var(--blue); }
+.deck-status-badge.loading { color: var(--amber); }
+.deck-status-badge.idle    { color: var(--text3); }
+
+.deck-time {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text2);
+}
+
+.deck-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+.deck-artist {
+  font-size: 11px;
+  color: var(--text2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.deck-stats {
+  display: flex;
+  gap: 14px;
+  align-items: baseline;
+  margin-top: 2px;
+}
+.stat-bpm {
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--text);
+  line-height: 1;
+}
+.stat-bpm small {
+  font-size: 10px;
+  color: var(--text3);
+  font-weight: 400;
+  margin-left: 2px;
+}
+.stat-key {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text2);
+}
+.stat-dur {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text3);
+  margin-left: auto;
+}
+
+.deck-mini-wave {
+  height: 24px;
+  background: #111;
+  border-radius: 2px;
+  overflow: hidden;
+  position: relative;
+}
+.deck-mini-wave canvas { display: block; }
+
+/* ── MIXER / CROSSFADER ── */
+.mixer {
+  height: 48px;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  gap: 14px;
+  border-bottom: 1px solid var(--line);
+  background: #1a1a1c;
+  flex-shrink: 0;
+}
+.mixer-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text2);
+  width: 16px;
+  text-align: center;
+}
+.xf-track {
+  flex: 1;
+  height: 3px;
+  background: var(--surface2);
+  border-radius: 2px;
+  position: relative;
+}
+.xf-fill {
+  height: 100%;
+  background: #404044;
+  border-radius: 2px;
+  width: 25%;
+}
+.xf-thumb {
+  position: absolute;
+  top: 50%;
+  left: 25%;
+  transform: translate(-50%, -50%);
+  width: 11px; height: 11px;
+  border-radius: 50%;
+  background: var(--text);
+  border: 1.5px solid #555;
+  cursor: grab;
+}
+.mixer-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 10px;
+}
+.ctrl-btn {
+  width: 30px; height: 30px;
+  border-radius: 3px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text2);
+  font-size: 11px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  font-family: var(--mono);
+  transition: background 120ms, border-color 120ms;
+}
+.ctrl-btn:hover { background: var(--surface2); border-color: rgba(255,255,255,.2); }
+.ctrl-btn.active {
+  background: var(--orange);
+  border-color: var(--orange);
+  color: white;
+}
+
+/* ── CLAUDE PANEL ── */
+.claude {
+  padding: 10px 14px;
+  background: #1e1e20;
+  border-top: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.claude-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.claude-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--orange);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  white-space: nowrap;
+  padding-top: 2px;
+  width: 60px;
+  flex-shrink: 0;
+}
+.claude-text {
+  font-size: 11px;
+  color: var(--text2);
+  line-height: 1.6;
+  flex: 1;
+}
+.claude-text b { color: var(--text); font-weight: 500; }
+.claude-next-col {
+  border-left: 1px solid var(--line);
+  padding-left: 14px;
+  flex-shrink: 0;
+  min-width: 140px;
+}
+.claude-next-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  margin-bottom: 3px;
+}
+.claude-next-status {
+  font-size: 11px;
+  color: var(--amber);
+  font-weight: 500;
+  margin-bottom: 1px;
+}
+.claude-next-pool {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text3);
+}
+</style>
+</head>
+<body>
+
+<p class="pg-title">claude-dj · design v3 · rekordbox/serato reference · ibm plex</p>
+
+<div class="app">
+
+  <!-- Menu bar -->
+  <div class="menubar">
+    <span class="menubar-brand">CLAUDE DJ</span>
+    <div class="menubar-items">
+      <span class="menubar-item active">Performance</span>
+      <span class="menubar-item">Library</span>
+      <span class="menubar-item">Settings</span>
+    </div>
+    <div class="menubar-spacer"></div>
+    <div class="menubar-right">
+      <span class="menubar-model">claude-sonnet-4-6</span>
+    </div>
+  </div>
+
+  <div class="body">
+
+    <!-- Library -->
+    <div class="lib">
+      <div class="lib-top">
+        <input class="lib-search" placeholder="Search library…" readonly>
+        <div class="lib-scan-btn">+ Scan</div>
+      </div>
+      <div class="lib-col-headers">
+        <span class="lib-col title">Title</span>
+        <span class="lib-col bpm">BPM</span>
+        <span class="lib-col key">Key</span>
+      </div>
+      <div class="lib-rows">
+        <div class="lib-row playing">
+          <span class="lib-row-title">Better Off Alone</span>
+          <span class="lib-row-bpm">136</span>
+          <span class="lib-row-key">Am</span>
+        </div>
+        <div class="lib-row next">
+          <span class="lib-row-title">Twilight Zone</span>
+          <span class="lib-row-bpm">129</span>
+          <span class="lib-row-key">Fm</span>
+        </div>
+        <div class="lib-row">
+          <span class="lib-row-title">Tribulations</span>
+          <span class="lib-row-bpm">123</span>
+          <span class="lib-row-key">Dm</span>
+        </div>
+        <div class="lib-row">
+          <span class="lib-row-title">Blue Monday</span>
+          <span class="lib-row-bpm">132</span>
+          <span class="lib-row-key">Em</span>
+        </div>
+        <div class="lib-row">
+          <span class="lib-row-title">Pump Up the Jam</span>
+          <span class="lib-row-bpm">128</span>
+          <span class="lib-row-key">C#m</span>
+        </div>
+        <div class="lib-row">
+          <span class="lib-row-title">Around the World</span>
+          <span class="lib-row-bpm">121</span>
+          <span class="lib-row-key">Am</span>
+        </div>
+        <div class="lib-row">
+          <span class="lib-row-title">One More Time</span>
+          <span class="lib-row-bpm">126</span>
+          <span class="lib-row-key">Bm</span>
+        </div>
+        <div class="lib-row">
+          <span class="lib-row-title">Sandstorm</span>
+          <span class="lib-row-bpm">137</span>
+          <span class="lib-row-key">Bm</span>
+        </div>
+        <div class="lib-row">
+          <span class="lib-row-title">Show Me Love</span>
+          <span class="lib-row-bpm">130</span>
+          <span class="lib-row-key">F#m</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main -->
+    <div class="main">
+
+      <!-- Full-width waveforms (THE hero element) -->
+      <div class="waveforms">
+        <div class="wf-section" id="wfWrapA">
+          <div class="wf-label a">DECK A</div>
+          <canvas id="wfA"></canvas>
+          <div class="wf-playhead" id="phA"></div>
+        </div>
+        <div class="wf-section" id="wfWrapB">
+          <div class="wf-label b">DECK B</div>
+          <canvas id="wfB"></canvas>
+        </div>
+      </div>
+
+      <!-- Decks info -->
+      <div class="decks">
+
+        <!-- Deck A -->
+        <div class="deck active">
+          <div class="deck-status-line">
+            <span class="deck-status-badge playing">Playing</span>
+            <span class="deck-time">-2:28</span>
+          </div>
+          <div class="deck-title">Better Off Alone</div>
+          <div class="deck-artist">Alice Deejay</div>
+          <div class="deck-stats">
+            <span class="stat-bpm">136.0<small>BPM</small></span>
+            <span class="stat-key">Am</span>
+            <span class="stat-dur">3:42</span>
+          </div>
+          <div class="deck-mini-wave">
+            <canvas id="miniA"></canvas>
+          </div>
+        </div>
+
+        <!-- Deck B -->
+        <div class="deck cued">
+          <div class="deck-status-line">
+            <span class="deck-status-badge ready">Ready</span>
+            <span class="deck-time">bar 96 · in ~1:44</span>
+          </div>
+          <div class="deck-title">Twilight Zone</div>
+          <div class="deck-artist">2 Unlimited</div>
+          <div class="deck-stats">
+            <span class="stat-bpm">129.2<small>BPM</small></span>
+            <span class="stat-key">Fm</span>
+            <span class="stat-dur">4:01</span>
+          </div>
+          <div class="deck-mini-wave">
+            <canvas id="miniB"></canvas>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Mixer / crossfader -->
+      <div class="mixer">
+        <span class="mixer-label" style="color:var(--orange)">A</span>
+        <div class="xf-track" id="xfTrack">
+          <div class="xf-fill" id="xfFill"></div>
+          <div class="xf-thumb" id="xfThumb"></div>
+        </div>
+        <span class="mixer-label" style="color:var(--blue)">B</span>
+        <div class="mixer-controls">
+          <div class="ctrl-btn active">&#9646;&#9646;</div>
+          <div class="ctrl-btn">&#9664;</div>
+          <div class="ctrl-btn">&#9654;</div>
+          <div class="ctrl-btn" style="width:auto;padding:0 10px;font-size:10px;gap:4px">
+            <span style="color:var(--green)">&#9679;</span> SYNC
+          </div>
+        </div>
+      </div>
+
+      <!-- Claude reasoning -->
+      <div class="claude">
+        <div class="claude-row">
+          <div class="claude-label">Claude</div>
+          <div class="claude-text">
+            Chose <b>Twilight Zone</b> — Fm resolves cleanly against Am with a minor third relationship. Planning a 24-bar crossfade: dropping A's bass at bar 88, introducing B's highs at 90, full swap at 96. BPM delta 6.8 is within stretch range. Energy profile matches across the drop.
+          </div>
+          <div class="claude-next-col">
+            <div class="claude-next-label">Up next</div>
+            <div class="claude-next-status">Analyzing T3…</div>
+            <div class="claude-next-pool">68 in pool</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+// ── seeded PRNG
+function rng(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(31,h) + s.charCodeAt(i)) | 0;
+  return () => { h^=h<<13; h^=h>>17; h^=h<<5; return (h>>>0)/0xffffffff; };
+}
+
+// ── Smooth with Gaussian
+function smooth(a, r) {
+  return a.map((_, i) => {
+    let s=0, w=0;
+    for (let j=Math.max(0,i-r);j<=Math.min(a.length-1,i+r);j++) {
+      const d=Math.abs(j-i), wt=Math.exp(-d*d/(2*r*r));
+      s+=a[j]*wt; w+=wt;
+    }
+    return s/w;
+  });
+}
+
+// ── Serato-style frequency color: red=bass, green=mid, blue=high
+function freqCol(t, past) {
+  // t: 0→1 = position along waveform (proxy for spectral content over time)
+  // In reality the bars would be per-frequency, but here we simulate the
+  // characteristic Serato red/green/blue look with position-based variation
+  const r = rng(String(t));
+  const freq = (r() * 0.5 + (1 - t) * 0.5); // bass-dominant at start
+  let red, grn, blu;
+  if (freq > 0.66) {       // bass dominant
+    red = 210; grn = 50; blu = 50;
+  } else if (freq > 0.33) { // mid dominant
+    red = 50; grn = 180; blu = 80;
+  } else {                  // high dominant
+    red = 60; grn = 100; blu = 220;
+  }
+  const a = past ? 0.25 : 0.75;
+  return `rgba(${red},${grn},${blu},${a})`;
+}
+
+// ── Draw main waveform (full resolution, Serato style)
+function drawWF(canvasId, wrapId, seed, playheadFrac = 0.5, isActive = false) {
+  const canvas = document.getElementById(canvasId);
+  const wrap   = document.getElementById(wrapId);
+  if (!canvas || !wrap) return;
+  const W = wrap.clientWidth, H = wrap.clientHeight;
+  if (!W || !H) return;
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+
+  const r    = rng(seed);
+  const BARS = Math.floor(W / 1.5);
+  const raw  = Array.from({length: BARS}, (_, i) => {
+    const t = i / BARS;
+    // Musical energy envelope
+    const env = Math.pow(Math.sin(t * Math.PI), 0.6) * 0.7 + 0.15;
+    return (0.05 + r() * 0.95) * env;
+  });
+  const amps = smooth(raw, 6);
+  const midY = H / 2;
+  const bw   = W / BARS;
+
+  // Background grid lines (bar markers) — subtle, like Rekordbox
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < BARS; i += 32) { // every ~32 bars
+    ctx.beginPath();
+    ctx.moveTo(i * bw, 0);
+    ctx.lineTo(i * bw, H);
+    ctx.stroke();
+  }
+
+  // Draw frequency-colored bars, mirrored
+  amps.forEach((amp, i) => {
+    const x = i * bw;
+    const t = i / BARS;
+    const past = t < playheadFrac;
+
+    // Color varies per bar based on pseudo-frequency data
+    // Simulate Serato's frequency distribution:
+    // low freqs (red) dominate kick-heavy sections, mids (green) at melodic parts, highs (blue) sparse
+    const phase = i / BARS * Math.PI * 8;
+    const lowAmt  = Math.max(0, Math.sin(phase + 0) * 0.5 + 0.4) * amp;
+    const midAmt  = Math.max(0, Math.sin(phase + 2) * 0.4 + 0.35) * amp;
+    const highAmt = Math.max(0, Math.sin(phase + 4) * 0.3 + 0.2) * amp;
+
+    const totalH = (lowAmt + midAmt + highAmt) * midY * 0.9;
+    const alpha = past ? 0.3 : 0.85;
+
+    // Stack the three frequency bands (bottom to top on each side)
+    const drawBand = (startY, h, color) => {
+      if (h < 0.5) return;
+      ctx.fillStyle = color;
+      ctx.globalAlpha = alpha;
+      ctx.fillRect(x, startY - h, Math.max(1, bw - 0.5), h);
+    };
+
+    // Top (above midY): stacked low(bottom of top half) → mid → high(tip)
+    const lowH  = lowAmt * midY * 0.9;
+    const midH  = midAmt * midY * 0.9;
+    const highH = highAmt * midY * 0.9;
+    const stackH = lowH + midH + highH;
+
+    drawBand(midY,              lowH,  `rgba(210,60,60,1)`);
+    drawBand(midY - lowH,       midH,  `rgba(60,190,90,1)`);
+    drawBand(midY - lowH - midH, highH, `rgba(60,110,220,1)`);
+
+    // Bottom mirror (slightly less opaque)
+    ctx.globalAlpha = alpha * 0.55;
+    drawBand(midY + lowH,       lowH,  `rgba(210,60,60,1)`);
+    drawBand(midY + lowH + midH, midH, `rgba(60,190,90,1)`);
+    drawBand(midY + lowH + midH + highH, highH, `rgba(60,110,220,1)`);
+    ctx.globalAlpha = 1;
+  });
+
+  // Center line
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, midY);
+  ctx.lineTo(W, midY);
+  ctx.stroke();
+}
+
+// ── Draw mini track overview waveform (simple, grayscale)
+function drawMini(canvasId, seed) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const W = canvas.parentElement.clientWidth;
+  const H = 24;
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0,0,W,H);
+  const r = rng(seed);
+  const BARS = Math.floor(W / 2);
+  const raw = Array.from({length:BARS}, (_,i) => {
+    const t = i/BARS;
+    return (0.1 + r() * 0.9) * (Math.pow(Math.sin(t*Math.PI), 0.5) * 0.7 + 0.2);
+  });
+  const amps = smooth(raw, 4);
+  amps.forEach((amp, i) => {
+    const x = i * (W/BARS);
+    const h = amp * H * 0.85;
+    ctx.fillStyle = 'rgba(160,160,170,0.4)';
+    ctx.fillRect(x, (H-h)/2, Math.max(1, W/BARS - 0.5), h);
+  });
+}
+
+// ── Playhead animation
+let phPos = 0.5; // center of waveform (Rekordbox/Serato style: track scrolls, playhead fixed at center)
+let phDir = 0.0003;
+function tick() {
+  phPos += phDir;
+  if (phPos > 0.65 || phPos < 0.35) phDir = -phDir;
+
+  // Redraw Deck A waveform with updated playhead
+  drawWF('wfA', 'wfWrapA', 'better-off-alone-full', phPos, true);
+  requestAnimationFrame(tick);
+}
+
+// ── Init
+window.addEventListener('load', () => {
+  setTimeout(() => {
+    drawWF('wfA', 'wfWrapA', 'better-off-alone-full', 0.5, true);
+    drawWF('wfB', 'wfWrapB', 'twilight-zone-full', 0, false);
+    drawMini('miniA', 'better-off-alone-mini');
+    drawMini('miniB', 'twilight-zone-mini');
+    tick();
+  }, 100);
+});
+
+window.addEventListener('resize', () => {
+  drawWF('wfA', 'wfWrapA', 'better-off-alone-full', phPos, true);
+  drawWF('wfB', 'wfWrapB', 'twilight-zone-full', 0, false);
+  drawMini('miniA', 'better-off-alone-mini');
+  drawMini('miniB', 'twilight-zone-mini');
+});
+</script>
+
+</body>
+</html>

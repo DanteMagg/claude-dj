@@ -1,0 +1,82 @@
+{
+  "id": "ex_001",
+  "meta": {
+    "genre": "house",
+    "t1_bpm": 123.0,
+    "t2_bpm": 129.2,
+    "t1_camelot": "9A",
+    "t2_camelot": "8A",
+    "camelot_distance": 1,
+    "bpm_delta": 6.2,
+    "exit_section": "intro",
+    "overlap_bars": 16,
+    "scenario": "house +1 move, 6.2 BPM gap, intro exit",
+    "source": "Tale Of Us - Essential Mix 2015-01-24",
+    "t1_artist": "Recondite",
+    "t1_title": "Serak",
+    "t2_artist": "Jessie Ware",
+    "t2_title": "Keep On Lying"
+  },
+  "transition_arc": "T1 is winding down through a sparse, low-energy outro at bar 56 (only hi-hats + filtered pads, kick absent, RMS ~0.15). T2 opens with a clean 8-bar percussion intro (snare sidestick only, no bass). The 16-bar window lets T2's groove build from near-silence while T1 fades \u2014 energy briefly dips then T2's full kick arrives just as T1 goes silent. The 6 BPM gap is imperceptible at this energy level.",
+  "annotated_actions": [
+    {
+      "action": {
+        "type": "play",
+        "track": "T1",
+        "at_bar": 0,
+        "from_bar": 0
+      },
+      "t1_state": "T1 bar 0: full groove, kick+bass+pads active, RMS 0.55, section=GROOVE",
+      "why": "Start T1 at its first downbeat for clean initial entry."
+    },
+    {
+      "action": {
+        "type": "fade_out",
+        "track": "T1",
+        "start_bar": 56,
+        "duration_bars": 16
+      },
+      "t1_state": "T1 bar 56: drums=0.1, harmonic=0.2, rms=0.15 \u2014 deep breakdown/outro, kick gone",
+      "t2_state": "T2 bar 16: percussion only, bass=0.0, harmonic=0.15",
+      "why": "T1 is in its sparsest section \u2014 kick has dropped out, only filtered pads remain. Fading here causes no perceptible energy loss. fade_out starts simultaneous with T2 fade_in."
+    },
+    {
+      "action": {
+        "type": "fade_in",
+        "track": "T2",
+        "start_bar": 56,
+        "duration_bars": 16,
+        "from_bar": 16,
+        "stems": {
+          "drums": 0.8,
+          "bass": 0.0,
+          "vocals": 0.0,
+          "other": 0.6
+        }
+      },
+      "t2_state": "T2 bar 16: percussion sidestick present (drums=0.4), bass=0.0, no full groove yet",
+      "why": "T2 enters with drums:0.8 (percussion texture only) and other:0.6 (pads/synth). bass:0.0 because T1 bass is still active (will be swapped at midpoint). from_bar=16 skips T2's first 16 bars of near-silence."
+    },
+    {
+      "action": {
+        "type": "bass_swap",
+        "track": "T1",
+        "at_bar": 64,
+        "incoming_track": "T2"
+      },
+      "t1_state": "T1 bar 64: bass=0.05 (nearly gone), drums=0.05, rms=0.10 \u2014 near-silence",
+      "t2_state": "T2 bar 24 (fade_in started 8 bars ago): bass about to enter at bar 32",
+      "why": "At the midpoint of the 16-bar window, T1 bass is almost inaudible. Swap now to hand off the bassline cleanly before T2's full groove arrives."
+    },
+    {
+      "action": {
+        "type": "play",
+        "track": "T2",
+        "at_bar": 72,
+        "from_bar": 32
+      },
+      "t2_state": "T2 bar 32: full groove active \u2014 4-on-floor kick, bass, pads all present, RMS 0.55",
+      "why": "T2 full groove (4-on-floor kick + bass) starts here. The fade_in stem layer is replaced by the full-mix play at T2 bar 32 (first bar of T2's drop section)."
+    }
+  ]
+}

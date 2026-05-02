@@ -36,12 +36,11 @@ def cli():
 @click.option("--model", default="claude-sonnet-4-6", show_default=True, help="Claude model to use")
 @click.option("--mp3", is_flag=True, help="Export as MP3 instead of WAV")
 @click.option("--no-stems", is_flag=True, help="Skip Demucs (faster, disables stem fades)")
-def mix(tracks_dir, output, analyze_only, script, model, mp3, no_stems):
+@click.option("--min-minutes", default=None, type=int, help="Target minimum set length in minutes (hint to Claude)")
+@click.option("--dry-run", is_flag=True, help="Print transition table without rendering audio")
+def mix(tracks_dir, output, analyze_only, script, model, mp3, no_stems, min_minutes, dry_run):
     """Analyze TRACKS_DIR, ask Claude to direct the mix, render audio."""
     sys.path.insert(0, str(Path(__file__).parent))
-
-    if no_stems:
-        os.environ["CLAUDE_DJ_NO_STEMS"] = "1"
 
     if script:
         # skip analysis + Claude
@@ -62,7 +61,7 @@ def mix(tracks_dir, output, analyze_only, script, model, mp3, no_stems):
 
         click.echo("\nAnalyzing tracks…")
         from analyze import analyze_tracks
-        analyses = analyze_tracks(track_paths)
+        analyses = analyze_tracks(track_paths, no_stems=no_stems)
 
         if analyze_only:
             click.echo("\nAnalysis complete. JSON cached per track.")
@@ -72,7 +71,7 @@ def mix(tracks_dir, output, analyze_only, script, model, mp3, no_stems):
 
         click.echo("\nAsking Claude to direct the mix…")
         from mix_director import direct_mix
-        mix_script = direct_mix(analyses, model)
+        mix_script = direct_mix(analyses, model, min_minutes=min_minutes)
         click.echo(f"\nReasoning: {mix_script.reasoning[:300]}{'…' if len(mix_script.reasoning) > 300 else ''}")
 
         # save script
@@ -81,6 +80,16 @@ def mix(tracks_dir, output, analyze_only, script, model, mp3, no_stems):
         with open(script_path, "w") as f:
             json.dump(dataclasses.asdict(mix_script), f, indent=2)
         click.echo(f"Mix script saved: {script_path}")
+
+    # normalize (safety layer: clamp DSP values, inject bass_swap if missing)
+    from normalizer import normalize
+    mix_script = normalize(mix_script)
+
+    # dry-run: print transition table and exit
+    if dry_run:
+        from executor import explain_script
+        explain_script(mix_script)
+        return
 
     # render
     if output is None:
@@ -101,9 +110,6 @@ def dump(tracks_dir, output, no_stems):
     """Analyze TRACKS_DIR and write combined analysis JSON (for external Claude session)."""
     sys.path.insert(0, str(Path(__file__).parent))
 
-    if no_stems:
-        os.environ["CLAUDE_DJ_NO_STEMS"] = "1"
-
     track_paths = _find_tracks(tracks_dir)
     click.echo(f"Found {len(track_paths)} track(s):")
     for i, p in enumerate(track_paths):
@@ -111,7 +117,7 @@ def dump(tracks_dir, output, no_stems):
 
     click.echo("\nAnalyzing tracks…")
     from analyze import analyze_tracks
-    analyses = analyze_tracks(track_paths)
+    analyses = analyze_tracks(track_paths, no_stems=no_stems)
 
     combined = [a.to_dict() for a in analyses]
     out_path = output or str(Path(tracks_dir) / "analysis.json")
@@ -121,6 +127,21 @@ def dump(tracks_dir, output, no_stems):
     click.echo(f"\nAnalysis written to: {out_path}")
     for a in analyses:
         click.echo(f"  {a.id}: {a.title} — {a.bpm:.1f} BPM, {a.key.camelot} ({a.key.standard}), {a.duration_s:.0f}s")
+
+
+@cli.command()
+@click.option("--host", default="127.0.0.1", show_default=True, help="Bind host")
+@click.option("--port", default=8000, show_default=True, help="Bind port")
+@click.option("--reload", is_flag=True, help="Enable auto-reload (dev mode)")
+def serve(host, port, reload):
+    """Start the Claude DJ streaming server (FastAPI + WebSocket)."""
+    sys.path.insert(0, str(Path(__file__).parent))
+    try:
+        import uvicorn
+    except ImportError:
+        raise click.ClickException("uvicorn not installed — run: pip install uvicorn[standard]")
+    click.echo(f"Starting Claude DJ server on http://{host}:{port}")
+    uvicorn.run("server:app", host=host, port=port, reload=reload)
 
 
 if __name__ == "__main__":

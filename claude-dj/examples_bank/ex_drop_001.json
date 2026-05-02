@@ -1,0 +1,95 @@
+{
+  "id": "ex_drop_001",
+  "meta": {
+    "genre": "tech_house",
+    "t1_bpm": 127.0,
+    "t2_bpm": 127.0,
+    "t1_camelot": "2A",
+    "t2_camelot": "1A",
+    "camelot_distance": 1,
+    "bpm_delta": 0.0,
+    "exit_section": "drop",
+    "overlap_bars": 8,
+    "technique": "drop_swap",
+    "scenario": "drop swap \u2014 both tracks at peak energy, 8-bar hard blend, energy stays up",
+    "source": "Laurent Garnier - Essential Mix 1995-11-18",
+    "t1_artist": "T1 Artist",
+    "t1_title": "Peak Track A",
+    "t2_artist": "T2 Artist",
+    "t2_title": "Peak Track B"
+  },
+  "transition_arc": "Both tracks are in full drop sections (rms > 0.65, drums > 0.7). A 16-bar gradual blend would cause energy to dip and sound underwhelming. Instead: 8-bar aggressive overlap with drums:1.0 (T2 full kick immediately), bass_swap at bar 4 of the window, and T1 out in 8 bars. The combined energy briefly peaks during bars 4-8 of the overlap \u2014 this sounds like a massive energy surge rather than a dip. The +1 Camelot move (2A\u21921A) is safe. After the swap, T2 carries the energy forward.",
+  "annotated_actions": [
+    {
+      "action": {
+        "type": "play",
+        "track": "T1",
+        "at_bar": 0,
+        "from_bar": 0
+      },
+      "t1_state": "T1 bar 0: immediate full drop energy, kick+bass+synths, RMS 0.70",
+      "why": "Tech house track enters at full groove."
+    },
+    {
+      "action": {
+        "type": "eq",
+        "track": "T1",
+        "bar": 56,
+        "low": 0.7,
+        "mid": 1.0,
+        "high": 1.0
+      },
+      "t1_state": "T1 bar 56: still in full drop, rms=0.68",
+      "t2_state": "T2 bar 0: about to be faded in at bar 56 with full drums",
+      "why": "Pre-emptively reduce T1's low end slightly before the overlap to prevent combined bass overload when T2's full kick enters at bar 56. T1 low=0.7 (not 0.5 \u2014 we still want punch, just controlled)."
+    },
+    {
+      "action": {
+        "type": "fade_in",
+        "track": "T2",
+        "start_bar": 56,
+        "duration_bars": 8,
+        "from_bar": 0,
+        "stems": {
+          "drums": 1.0,
+          "bass": 0.0,
+          "vocals": 0.0,
+          "other": 0.8
+        }
+      },
+      "t2_state": "T2 bar 0: full drop \u2014 kick hits immediately, rms=0.68, drums=0.85",
+      "why": "drums:1.0 \u2014 T2's kick comes in at full force immediately. This is NOT a subtle intro. The combined kick of T1+T2 for 4 bars creates an energy surge that feels intentional. bass:0.0 still held \u2014 the simultaneous bass would be too muddy even for a drop swap. other:0.8 \u2014 the synth drop layer of T2 is fully audible (same energy level as T1's drop)."
+    },
+    {
+      "action": {
+        "type": "bass_swap",
+        "track": "T1",
+        "at_bar": 60,
+        "incoming_track": "T2"
+      },
+      "t1_state": "T1 bar 60: still in drop but 4 bars into fade_out, drums=0.60, bass=0.50 (reducing)",
+      "t2_state": "T2 bar 4 (from_bar=0, 4 bars faded): bass about to enter fully",
+      "why": "Midpoint of the 8-bar window. Earlier than a standard 16-bar swap midpoint. T1's bass is still present at 0.5 \u2014 the swap here cuts it cleanly before T2's bass fully locks in. With 8-bar overlaps, the swap must fire earlier."
+    },
+    {
+      "action": {
+        "type": "fade_out",
+        "track": "T1",
+        "start_bar": 56,
+        "duration_bars": 8
+      },
+      "t1_state": "T1 bar 56: starts fading simultaneously with T2 fade_in",
+      "why": "8-bar fade_out (not 16). Hard, fast exit. T1 is gone at bar 64. The energy surge during the 8-bar overlap is the defining moment of this technique."
+    },
+    {
+      "action": {
+        "type": "play",
+        "track": "T2",
+        "at_bar": 64,
+        "from_bar": 8
+      },
+      "t2_state": "T2 bar 8: still in full drop, kick+bass fully established, RMS 0.70",
+      "why": "T2 full mix at bar 8 (still in the drop). T1 gone at bar 64. Energy has not dipped \u2014 the transition is a surge, not a blend."
+    }
+  ]
+}

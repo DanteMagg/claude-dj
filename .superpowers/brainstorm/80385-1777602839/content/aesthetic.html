@@ -1,0 +1,245 @@
+<style>
+  .compare { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-top: 16px; }
+
+  .ae-card {
+    border: 2px solid #2a2a2a;
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .ae-card:hover { border-color: #555; }
+  .ae-card.selected { border-color: #ff5f00 !important; box-shadow: 0 0 0 1px #ff5f00; }
+
+  /* ── Option A: Rekordbox Precise ── */
+  .ae-a {
+    background: #0c0c0e;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  .ae-a .topbar {
+    background: #0f0f12; border-bottom: 1px solid #1e1e24;
+    padding: 8px 12px; display: flex; align-items: center; gap: 12px;
+  }
+  .ae-a .brand { font-size: 10px; font-weight: 700; letter-spacing: .18em; color: #8b5cf6; }
+  .ae-a .bpm   { font-family: monospace; font-size: 13px; font-weight: 600; color: #e4e4e7; margin-left: auto; }
+  .ae-a .bpm span { font-size: 9px; color: #52525b; margin-left: 2px; }
+  .ae-a .decks { display: flex; gap: 0; }
+  .ae-a .deck {
+    flex: 1; padding: 10px; background: #0f0f12;
+    border-right: 1px solid #1e1e24;
+  }
+  .ae-a .deck-title { font-size: 9px; font-weight: 700; letter-spacing: .14em; color: #52525b; text-transform: uppercase; }
+  .ae-a .deck-name  { font-size: 12px; font-weight: 500; color: #e4e4e7; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ae-a .deck-meta  { font-family: monospace; font-size: 10px; color: #8b5cf6; margin-top: 2px; }
+  .ae-a .wave-row {
+    height: 28px; background: #0d0d10; border-top: 1px solid #1e1e24;
+    display: flex; align-items: center; padding: 0 12px; gap: 3px;
+  }
+  .ae-a .wbar { width: 3px; border-radius: 1px; background: #8b5cf6; opacity: .7; }
+  .ae-a .wbar.a { background: #8b5cf6; }
+  .ae-a .wbar.b { background: #3b82f6; }
+  .ae-a .lib-row {
+    padding: 8px 12px; border-top: 1px solid #1a1a1f; background: #0a0a0d;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .ae-a .lib-item { font-size: 10px; color: #52525b; display: flex; gap: 8px; }
+  .ae-a .lib-item span { color: #a1a1aa; }
+  .ae-a-label { padding: 7px 12px; border-bottom: 1px solid #1e1e24; background: #0f0f12; }
+  .ae-a-label span { font-size: 10px; font-weight: 700; letter-spacing: .12em; color: #8b5cf6; }
+
+  /* ── Option B: Warm Analog ── */
+  .ae-b {
+    background: #080808;
+    font-family: 'Outfit', system-ui, sans-serif;
+  }
+  .ae-b .topbar {
+    background: #0e0e0e; border-bottom: 1px solid #1e1e1e;
+    padding: 8px 12px; display: flex; align-items: center; gap: 12px;
+  }
+  .ae-b .brand { font-size: 10px; font-weight: 800; letter-spacing: .2em; color: #ff5f00; }
+  .ae-b .bpm   { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 600; color: #e8e8e8; margin-left: auto; }
+  .ae-b .bpm span { font-size: 9px; color: #444; margin-left: 2px; }
+  .ae-b .decks { display: flex; gap: 0; }
+  .ae-b .deck-a { flex: 1; padding: 10px; background: rgba(255,95,0,.04); border-right: 1px solid #1e1e1e; }
+  .ae-b .deck-b { flex: 1; padding: 10px; background: rgba(0,180,255,.03); }
+  .ae-b .deck-title { font-size: 9px; font-weight: 700; letter-spacing: .14em; color: #333; text-transform: uppercase; }
+  .ae-b .deck-name-a { font-size: 12px; font-weight: 600; color: #e8e8e8; margin-top: 3px; }
+  .ae-b .deck-name-b { font-size: 12px; font-weight: 600; color: #666; margin-top: 3px; }
+  .ae-b .deck-meta-a { font-family: monospace; font-size: 10px; color: #ff5f00; margin-top: 2px; }
+  .ae-b .deck-meta-b { font-family: monospace; font-size: 10px; color: #00b4ff; margin-top: 2px; }
+  .ae-b .wave-row {
+    height: 28px; background: #0d0d0d; border-top: 1px solid #1a1a1a;
+    display: flex; align-items: center; padding: 0 12px; gap: 2px;
+  }
+  .ae-b .wbar { width: 3px; border-radius: 1px; }
+  .ae-b .lib-row { padding: 8px 12px; border-top: 1px solid #1a1a1a; background: #0a0a0a; display: flex; flex-direction: column; gap: 4px; }
+  .ae-b .lib-item { font-size: 10px; color: #333; display: flex; gap: 8px; }
+  .ae-b .lib-item span { color: #888; }
+  .ae-b-label { padding: 7px 12px; border-bottom: 1px solid #1e1e1e; background: #0e0e0e; }
+  .ae-b-label span { font-size: 10px; font-weight: 700; letter-spacing: .12em; color: #ff5f00; }
+
+  /* ── Option C: Neon Night ── */
+  .ae-c {
+    background: #070710;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  .ae-c .topbar {
+    background: #09091a; border-bottom: 1px solid #1a1a3a;
+    padding: 8px 12px; display: flex; align-items: center; gap: 12px;
+  }
+  .ae-c .brand { font-size: 10px; font-weight: 800; letter-spacing: .2em; color: #00ffe1; text-shadow: 0 0 12px rgba(0,255,225,.5); }
+  .ae-c .bpm   { font-family: monospace; font-size: 13px; font-weight: 600; color: #e0e0ff; margin-left: auto; }
+  .ae-c .bpm span { font-size: 9px; color: #3a3a5a; margin-left: 2px; }
+  .ae-c .decks { display: flex; gap: 0; }
+  .ae-c .deck-a { flex: 1; padding: 10px; background: rgba(0,255,225,.03); border-right: 1px solid #1a1a3a; }
+  .ae-c .deck-b { flex: 1; padding: 10px; background: rgba(255,0,200,.03); }
+  .ae-c .deck-title { font-size: 9px; font-weight: 700; letter-spacing: .14em; color: #2a2a4a; text-transform: uppercase; }
+  .ae-c .deck-name-a { font-size: 12px; font-weight: 600; color: #e0e0ff; margin-top: 3px; }
+  .ae-c .deck-name-b { font-size: 12px; font-weight: 600; color: #5a5a8a; margin-top: 3px; }
+  .ae-c .deck-meta-a { font-family: monospace; font-size: 10px; color: #00ffe1; margin-top: 2px; text-shadow: 0 0 6px rgba(0,255,225,.4); }
+  .ae-c .deck-meta-b { font-family: monospace; font-size: 10px; color: #ff00c8; margin-top: 2px; }
+  .ae-c .wave-row {
+    height: 28px; background: #08081a; border-top: 1px solid #1a1a3a;
+    display: flex; align-items: center; padding: 0 12px; gap: 2px;
+  }
+  .ae-c .wbar { width: 3px; border-radius: 1px; }
+  .ae-c .lib-row { padding: 8px 12px; border-top: 1px solid #14143a; background: #07071a; display: flex; flex-direction: column; gap: 4px; }
+  .ae-c .lib-item { font-size: 10px; color: #2a2a4a; display: flex; gap: 8px; }
+  .ae-c .lib-item span { color: #6a6a9a; }
+  .ae-c-label { padding: 7px 12px; border-bottom: 1px solid #1a1a3a; background: #09091a; }
+  .ae-c-label span { font-size: 10px; font-weight: 700; letter-spacing: .12em; color: #00ffe1; }
+
+  .ae-desc { padding: 10px 12px 12px; border-top: 1px solid #1a1a1a; }
+  .ae-desc h3 { font-size: 12px; font-weight: 600; color: #ddd; margin-bottom: 3px; }
+  .ae-desc p  { font-size: 11px; color: #666; line-height: 1.5; }
+
+  .lc-label { font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+    padding: 7px 12px; border-bottom: 1px solid #222; color: #888; display: flex; justify-content: space-between; }
+  .ae-card.selected .lc-label { color: #ff5f00; }
+  .lc-tag { font-size: 9px; padding: 2px 6px; border-radius: 3px; background: #1a1a1a; color: #555; }
+</style>
+
+<h2>Aesthetic Direction</h2>
+<p class="subtitle">Three visual languages — actual color and typography previewed</p>
+
+<div class="compare">
+
+  <!-- A: Precision Dark (Rekordbox) -->
+  <div class="ae-card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="lc-label">A — Precision Dark <span class="lc-tag">Rekordbox</span></div>
+    <div class="ae-a">
+      <div class="topbar">
+        <span class="brand">CLAUDE DJ</span>
+        <span class="bpm">128.4 <span>BPM</span></span>
+      </div>
+      <div class="decks">
+        <div class="deck">
+          <div class="deck-title">Deck A · Playing</div>
+          <div class="deck-name">Bear Like — For Your Love</div>
+          <div class="deck-meta">128 BPM · 8A · Energy 7</div>
+        </div>
+        <div class="deck" style="border-right:none;">
+          <div class="deck-title">Deck B · Loading</div>
+          <div class="deck-name" style="color:#52525b">Lawrence James — Energy</div>
+          <div class="deck-meta" style="color:#3b82f6">124 BPM · 9B</div>
+        </div>
+      </div>
+      <div class="wave-row">
+        <script>
+          const heights=[3,5,6,7,8,7,6,5,4,6,7,8,9,8,7,6,5,4,3,4,5,6,7,6,5,7,8,7,5,4,3,5,6,7,8,7,6,5,4,3];
+          document.write(heights.map((h,i)=>`<div class="wbar ${i<20?'a':'b'}" style="height:${h*3}px;opacity:${i<20?0.8:0.4}"></div>`).join(''));
+        </script>
+      </div>
+      <div class="lib-row">
+        <div class="lib-item"><span>For Your Love (Extended)</span> 128 · 8A</div>
+        <div class="lib-item"><span>The Tribe</span> 126 · 7A</div>
+        <div class="lib-item"><span>I Feel Fire</span> 130 · 11A</div>
+      </div>
+    </div>
+    <div class="ae-desc">
+      <h3>Near-black · Purple accents · Inter font</h3>
+      <p>Controlled, professional, data-rich. Familiar to power users of DJ software. Purple gives a technical/AI feel without being loud.</p>
+    </div>
+  </div>
+
+  <!-- B: Warm Analog -->
+  <div class="ae-card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="lc-label">B — Warm Analog <span class="lc-tag">Current direction</span></div>
+    <div class="ae-b">
+      <div class="topbar">
+        <span class="brand">CLAUDE DJ</span>
+        <span class="bpm">128.4 <span>BPM</span></span>
+      </div>
+      <div class="decks">
+        <div class="deck-a">
+          <div class="deck-title">Deck A · Playing</div>
+          <div class="deck-name-a">Bear Like — For Your Love</div>
+          <div class="deck-meta-a">128 BPM · 8A · Energy 7</div>
+        </div>
+        <div class="deck-b">
+          <div class="deck-title">Deck B · Loading</div>
+          <div class="deck-name-b">Lawrence James — Energy</div>
+          <div class="deck-meta-b">124 BPM · 9B</div>
+        </div>
+      </div>
+      <div class="wave-row">
+        <script>
+          const h2=[3,5,6,7,8,7,6,5,4,6,7,8,9,8,7,6,5,4,3,4,5,6,7,6,5,7,8,7,5,4,3,5,6,7,8,7,6,5,4,3];
+          document.write(h2.map((h,i)=>`<div class="wbar" style="height:${h*3}px;background:${i<20?'#ff5f00':'#00b4ff'};opacity:${i<20?0.7:0.35}"></div>`).join(''));
+        </script>
+      </div>
+      <div class="lib-row">
+        <div class="lib-item"><span>For Your Love (Extended)</span> 128 · 8A</div>
+        <div class="lib-item"><span>The Tribe</span> 126 · 7A</div>
+        <div class="lib-item"><span>I Feel Fire</span> 130 · 11A</div>
+      </div>
+    </div>
+    <div class="ae-desc">
+      <h3>True black · Orange/Blue split · JetBrains Mono</h3>
+      <p>What you had before — refined. Deck A is orange (warm/fire), Deck B is blue (incoming/cool). High contrast, energetic.</p>
+    </div>
+  </div>
+
+  <!-- C: Neon Night -->
+  <div class="ae-card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="lc-label">C — Neon Night <span class="lc-tag">Club / Rave</span></div>
+    <div class="ae-c">
+      <div class="topbar">
+        <span class="brand">CLAUDE DJ</span>
+        <span class="bpm">128.4 <span>BPM</span></span>
+      </div>
+      <div class="decks">
+        <div class="deck-a">
+          <div class="deck-title">Deck A · Playing</div>
+          <div class="deck-name-a">Bear Like — For Your Love</div>
+          <div class="deck-meta-a">128 BPM · 8A · Energy 7</div>
+        </div>
+        <div class="deck-b">
+          <div class="deck-title">Deck B · Loading</div>
+          <div class="deck-name-b">Lawrence James — Energy</div>
+          <div class="deck-meta-b">124 BPM · 9B</div>
+        </div>
+      </div>
+      <div class="wave-row">
+        <script>
+          const h3=[3,5,6,7,8,7,6,5,4,6,7,8,9,8,7,6,5,4,3,4,5,6,7,6,5,7,8,7,5,4,3,5,6,7,8,7,6,5,4,3];
+          document.write(h3.map((h,i)=>`<div class="wbar" style="height:${h*3}px;background:${i<20?'#00ffe1':'#ff00c8'};opacity:${i<20?0.7:0.35}"></div>`).join(''));
+        </script>
+      </div>
+      <div class="lib-row">
+        <div class="lib-item"><span>For Your Love (Extended)</span> 128 · 8A</div>
+        <div class="lib-item"><span>The Tribe</span> 126 · 7A</div>
+        <div class="lib-item"><span>I Feel Fire</span> 130 · 11A</div>
+      </div>
+    </div>
+    <div class="ae-desc">
+      <h3>Deep navy · Cyan/Magenta · Glow effects</h3>
+      <p>Dramatic, club-ready. Cyan for playing, magenta for incoming. The glow makes it feel alive and pulsing.</p>
+    </div>
+  </div>
+
+</div>
+
+<p style="margin-top:16px;font-size:11px;color:#555;text-align:center">
+  Click a card to select · This sets the color palette and font choices for everything
+</p>

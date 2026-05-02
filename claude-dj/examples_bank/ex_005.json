@@ -1,0 +1,82 @@
+{
+  "id": "ex_005",
+  "meta": {
+    "genre": "house",
+    "t1_bpm": 123.0,
+    "t2_bpm": 123.0,
+    "t1_camelot": "12A",
+    "t2_camelot": "12A",
+    "camelot_distance": 0,
+    "bpm_delta": 0.0,
+    "exit_section": "intro",
+    "overlap_bars": 16,
+    "scenario": "house same key same BPM \u2014 maximum compatibility, harmonic blend safe",
+    "source": "Palms Trax @ Boiler Room x Dekmantel 2018-08-04",
+    "t1_artist": "Bassekou Kouyate",
+    "t1_title": "Jama Ko",
+    "t2_artist": "Mpumi Feat. DJ Christor",
+    "t2_title": "Oxamu"
+  },
+  "transition_arc": "Same key (12A/Dm) and same BPM \u2014 the most harmonically compatible pairing possible. With same-key blending, harmonic stems (other:0.6) can be brought in early without clashing. T1 from_bar=16 skips a 16-bar vocal intro that would clash with T2. This is a minimal-risk blend where the energy barely dips \u2014 T2 groove reinforces T1 groove.",
+  "annotated_actions": [
+    {
+      "action": {
+        "type": "play",
+        "track": "T1",
+        "at_bar": 0,
+        "from_bar": 16
+      },
+      "t1_state": "T1 bar 16: first full groove bar after vocal intro, kick+bass active, RMS 0.48",
+      "why": "from_bar=16 skips T1's opening 16-bar vocal/spoken intro which would be incompatible with mixing."
+    },
+    {
+      "action": {
+        "type": "fade_out",
+        "track": "T1",
+        "start_bar": 56,
+        "duration_bars": 16
+      },
+      "t1_state": "T1 bar 72 (play bar 56 + from_bar 16 = track bar 72): drums=0.3, rms=0.30 \u2014 approaching outro",
+      "t2_state": "T2 bar 0: groove intro, kick+bass from bar 0, RMS 0.40",
+      "why": "T1 at track bar 72 is winding toward outro. Same key means harmonic blend during the fade is safe throughout."
+    },
+    {
+      "action": {
+        "type": "fade_in",
+        "track": "T2",
+        "start_bar": 56,
+        "duration_bars": 16,
+        "from_bar": 0,
+        "stems": {
+          "drums": 0.8,
+          "bass": 0.0,
+          "vocals": 0.0,
+          "other": 0.6
+        }
+      },
+      "t2_state": "T2 bar 0: kick present from bar 0 (drums=0.6), bass=0.0 for first 8 bars",
+      "why": "T2 from_bar=0: this track opens directly with its groove. Same key means other:0.6 harmonic blending is immediately safe. bass:0.0 still \u2014 even same-key, two basslines clash in the low end."
+    },
+    {
+      "action": {
+        "type": "bass_swap",
+        "track": "T1",
+        "at_bar": 64,
+        "incoming_track": "T2"
+      },
+      "t1_state": "T1 play bar 64: drums=0.15, bass=0.20, rms=0.25 \u2014 fading",
+      "t2_state": "T2 bar 8: bass now present (0.45), full groove imminent",
+      "why": "T2 bass has emerged at bar 8. Swap immediately \u2014 even same-key, two basslines at the same pitch phase-cancel in the low end."
+    },
+    {
+      "action": {
+        "type": "play",
+        "track": "T2",
+        "at_bar": 72,
+        "from_bar": 16
+      },
+      "t2_state": "T2 bar 16: full groove, both kick and bassline locked in at 123 BPM, RMS 0.55",
+      "why": "T2 groove fully established. T1 completely faded."
+    }
+  ]
+}

@@ -1,0 +1,464 @@
+[
+  {
+    "id": "T1",
+    "title": "Demo Track 1",
+    "artist": "Unknown",
+    "file": "/Users/DantesFolder/Music/PioneerDJ/Demo Tracks/Demo Track 1.mp3",
+    "duration_s": 172.4,
+    "bpm": 129.2,
+    "first_downbeat_s": 0.046,
+    "key": {
+      "camelot": "4A",
+      "standard": "Fm",
+      "mode": "minor",
+      "tonic": "F"
+    },
+    "energy_overall": 6,
+    "loudness_lufs": -12.0,
+    "bar_grid": {
+      "n_bars": 88,
+      "beats_per_bar": 4
+    },
+    "energy_curve_per_bar": "7777777777777777777777777777777766666666666666666454545454544344777777777777777777777775",
+    "sections": [
+      {
+        "label": "A",
+        "start_bar": 0,
+        "end_bar": 0,
+        "start_s": 0.0,
+        "end_s": 0.0,
+        "energy": 0,
+        "loudness_dbfs": -80.0,
+        "stems": {
+          "drums": {
+            "presence": 0,
+            "rms_db": NaN
+          },
+          "bass": {
+            "presence": 0,
+            "rms_db": NaN
+          },
+          "vocals": {
+            "presence": 0,
+            "rms_db": NaN
+          },
+          "other": {
+            "presence": 0,
+            "rms_db": NaN
+          }
+        }
+      },
+      {
+        "label": "B",
+        "start_bar": 0,
+        "end_bar": 49,
+        "start_s": 0.0,
+        "end_s": 91.96,
+        "energy": 7,
+        "loudness_dbfs": -11.5,
+        "stems": {
+          "drums": {
+            "presence": 9,
+            "rms_db": -16.4
+          },
+          "bass": {
+            "presence": 10,
+            "rms_db": -13.2
+          },
+          "vocals": {
+            "presence": 0,
+            "rms_db": -46.4
+          },
+          "other": {
+            "presence": 0,
+            "rms_db": -29.2
+          }
+        }
+      },
+      {
+        "label": "C",
+        "start_bar": 49,
+        "end_bar": 63,
+        "start_s": 91.96,
+        "end_s": 119.77,
+        "energy": 4,
+        "loudness_dbfs": -20.7,
+        "stems": {
+          "drums": {
+            "presence": 2,
+            "rms_db": -26.9
+          },
+          "bass": {
+            "presence": 4,
+            "rms_db": -23.2
+          },
+          "vocals": {
+            "presence": 0,
+            "rms_db": -37.4
+          },
+          "other": {
+            "presence": 0,
+            "rms_db": -30.7
+          }
+        }
+      },
+      {
+        "label": "D",
+        "start_bar": 63,
+        "end_bar": 87,
+        "start_s": 119.77,
+        "end_s": 166.3,
+        "energy": 7,
+        "loudness_dbfs": -10.4,
+        "stems": {
+          "drums": {
+            "presence": 10,
+            "rms_db": -13.4
+          },
+          "bass": {
+            "presence": 10,
+            "rms_db": -13.6
+          },
+          "vocals": {
+            "presence": 0,
+            "rms_db": -40.5
+          },
+          "other": {
+            "presence": 0,
+            "rms_db": -32.1
+          }
+        }
+      },
+      {
+        "label": "E",
+        "start_bar": 87,
+        "end_bar": 87,
+        "start_s": 166.3,
+        "end_s": 169.62,
+        "energy": 1,
+        "loudness_dbfs": -32.4,
+        "stems": {
+          "drums": {
+            "presence": 0,
+            "rms_db": -68.8
+          },
+          "bass": {
+            "presence": 0,
+            "rms_db": -73.2
+          },
+          "vocals": {
+            "presence": 0,
+            "rms_db": -68.5
+          },
+          "other": {
+            "presence": 0,
+            "rms_db": -32.5
+          }
+        }
+      },
+      {
+        "label": "F",
+        "start_bar": 87,
+        "end_bar": 87,
+        "start_s": 169.62,
+        "end_s": 170.57,
+        "energy": 0,
+        "loudness_dbfs": -62.9,
+        "stems": {
+          "drums": {
+            "presence": 0,
+            "rms_db": -69.1
+          },
+          "bass": {
+            "presence": 0,
+            "rms_db": -71.4
+          },
+          "vocals": {
+            "presence": 0,
+            "rms_db": -68.3
+          },
+          "other": {
+            "presence": 0,
+            "rms_db": -62.1
+          }
+        }
+      },
+      {
+        "label": "G",
+        "start_bar": 87,
+        "end_bar": 87,
+        "start_s": 170.57,
+        "end_s": 172.43,
+        "energy": 0,
+        "loudness_dbfs": -88.9,
+        "stems": {
+          "drums": {
+            "presence": 0,
+            "rms_db": -68.5
+          },
+          "bass": {
+            "presence": 0,
+            "rms_db": -68.4
+          },
+          "vocals": {
+            "presence": 0,
+            "rms_db": -67.5
+          },
+          "other": {
+            "presence": 0,
+            "rms_db": -70.0
+          }
+        }
+      }
+    ],
+    "cue_points": [
+      {
+        "name": "mix_in",
+        "bar": 0,
+        "type": "phrase_start"
+      },
+      {
+        "name": "mix_out",
+        "bar": 87,
+        "type": "outro_start"
+      }
+    ],
+    "stems": {
+      "vocals": "/Users/DantesFolder/Claude DJ/claude-dj/cache/021a9b1e70e9fcef/stems/vocals.wav",
+      "drums": "/Users/DantesFolder/Claude DJ/claude-dj/cache/021a9b1e70e9fcef/stems/drums.wav",
+      "bass": "/Users/DantesFolder/Claude DJ/claude-dj/cache/021a9b1e70e9fcef/stems/bass.wav",
+      "other": "/Users/DantesFolder/Claude DJ/claude-dj/cache/021a9b1e70e9fcef/stems/other.wav"
+    }
+  },
+  {
+    "id": "T2",
+    "title": "Disco Lines - No Broke Boys",
+    "artist": "Unknown",
+    "file": "/Users/DantesFolder/Downloads/Disco Lines - No Broke Boys.mp3",
+    "duration_s": 197.8,
+    "bpm": 132.5,
+    "first_downbeat_s": 0.813,
+    "key": {
+      "camelot": "1A",
+      "standard": "G#m",
+      "mode": "minor",
+      "tonic": "G#"
+    },
+    "energy_overall": 5,
+    "loudness_lufs": -15.5,
+    "bar_grid": {
+      "n_bars": 107,
+      "beats_per_bar": 4
+    },
+    "energy_curve_per_bar": "44454455555555555555555555555556666666666666666644444555555555555555555567667666666666665666666644444444431",
+    "sections": [
+      {
+        "label": "A",
+        "start_bar": 0,
+        "end_bar": 0,
+        "start_s": 0.0,
+        "end_s": 0.0,
+        "energy": 0,
+        "loudness_dbfs": -80.0,
+        "stems": {
+          "drums": {
+            "presence": 0,
+            "rms_db": NaN
+          },
+          "bass": {
+            "presence": 0,
+            "rms_db": NaN
+          },
+          "vocals": {
+            "presence": 0,
+            "rms_db": NaN
+          },
+          "other": {
+            "presence": 0,
+            "rms_db": NaN
+          }
+        }
+      },
+      {
+        "label": "B",
+        "start_bar": 0,
+        "end_bar": 30,
+        "start_s": 0.0,
+        "end_s": 56.6,
+        "energy": 5,
+        "loudness_dbfs": -18.6,
+        "stems": {
+          "drums": {
+            "presence": 1,
+            "rms_db": -28.0
+          },
+          "bass": {
+            "presence": 0,
+            "rms_db": -33.4
+          },
+          "vocals": {
+            "presence": 10,
+            "rms_db": -24.7
+          },
+          "other": {
+            "presence": 10,
+            "rms_db": -22.0
+          }
+        }
+      },
+      {
+        "label": "C",
+        "start_bar": 30,
+        "end_bar": 47,
+        "start_s": 56.6,
+        "end_s": 86.82,
+        "energy": 6,
+        "loudness_dbfs": -12.6,
+        "stems": {
+          "drums": {
+            "presence": 10,
+            "rms_db": -14.3
+          },
+          "bass": {
+            "presence": 10,
+            "rms_db": -19.3
+          },
+          "vocals": {
+            "presence": 3,
+            "rms_db": -28.5
+          },
+          "other": {
+            "presence": 4,
+            "rms_db": -27.2
+          }
+        }
+      },
+      {
+        "label": "D",
+        "start_bar": 47,
+        "end_bar": 67,
+        "start_s": 86.82,
+        "end_s": 124.83,
+        "energy": 5,
+        "loudness_dbfs": -18.3,
+        "stems": {
+          "drums": {
+            "presence": 0,
+            "rms_db": -30.2
+          },
+          "bass": {
+            "presence": 1,
+            "rms_db": -28.9
+          },
+          "vocals": {
+            "presence": 10,
+            "rms_db": -24.0
+          },
+          "other": {
+            "presence": 10,
+            "rms_db": -22.1
+          }
+        }
+      },
+      {
+        "label": "E",
+        "start_bar": 67,
+        "end_bar": 70,
+        "start_s": 124.83,
+        "end_s": 129.64,
+        "energy": 5,
+        "loudness_dbfs": -16.8,
+        "stems": {
+          "drums": {
+            "presence": 0,
+            "rms_db": -34.4
+          },
+          "bass": {
+            "presence": 1,
+            "rms_db": -28.9
+          },
+          "vocals": {
+            "presence": 10,
+            "rms_db": -21.7
+          },
+          "other": {
+            "presence": 10,
+            "rms_db": -22.2
+          }
+        }
+      },
+      {
+        "label": "F",
+        "start_bar": 70,
+        "end_bar": 105,
+        "start_s": 129.64,
+        "end_s": 194.06,
+        "energy": 6,
+        "loudness_dbfs": -14.1,
+        "stems": {
+          "drums": {
+            "presence": 10,
+            "rms_db": -16.0
+          },
+          "bass": {
+            "presence": 10,
+            "rms_db": -21.0
+          },
+          "vocals": {
+            "presence": 3,
+            "rms_db": -28.5
+          },
+          "other": {
+            "presence": 4,
+            "rms_db": -27.3
+          }
+        }
+      },
+      {
+        "label": "G",
+        "start_bar": 105,
+        "end_bar": 106,
+        "start_s": 194.06,
+        "end_s": 197.76,
+        "energy": 1,
+        "loudness_dbfs": -33.7,
+        "stems": {
+          "drums": {
+            "presence": 0,
+            "rms_db": -43.7
+          },
+          "bass": {
+            "presence": 0,
+            "rms_db": -89.1
+          },
+          "vocals": {
+            "presence": 0,
+            "rms_db": -75.7
+          },
+          "other": {
+            "presence": 0,
+            "rms_db": -34.2
+          }
+        }
+      }
+    ],
+    "cue_points": [
+      {
+        "name": "mix_in",
+        "bar": 0,
+        "type": "phrase_start"
+      },
+      {
+        "name": "mix_out",
+        "bar": 105,
+        "type": "outro_start"
+      }
+    ],
+    "stems": {
+      "vocals": "/Users/DantesFolder/Claude DJ/claude-dj/cache/688a915aff7e8e7b/stems/vocals.wav",
+      "drums": "/Users/DantesFolder/Claude DJ/claude-dj/cache/688a915aff7e8e7b/stems/drums.wav",
+      "bass": "/Users/DantesFolder/Claude DJ/claude-dj/cache/688a915aff7e8e7b/stems/bass.wav",
+      "other": "/Users/DantesFolder/Claude DJ/claude-dj/cache/688a915aff7e8e7b/stems/other.wav"
+    }
+  }
+]

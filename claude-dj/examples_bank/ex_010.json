@@ -1,0 +1,82 @@
+{
+  "id": "ex_010",
+  "meta": {
+    "genre": "deep_house",
+    "t1_bpm": 117.5,
+    "t2_bpm": 129.2,
+    "t1_camelot": "9A",
+    "t2_camelot": "10B",
+    "camelot_distance": 1,
+    "bpm_delta": 11.7,
+    "exit_section": "groove",
+    "overlap_bars": 16,
+    "scenario": "deep house A to B diagonal Camelot, 11.7 BPM gap, T2 enters mid-track at bar 40",
+    "source": "Kerri Chandler b2b Jeremy Underground @ Boiler Room 2016-08-18",
+    "t1_artist": "Teleport Feat. Russell Patterson",
+    "t1_title": "More I Get",
+    "t2_artist": "Harold Melvin & The Blue Notes",
+    "t2_title": "The Love I Lost"
+  },
+  "transition_arc": "Large BPM jump (11.7 BPM, ~10%) with A to B diagonal Camelot move. T2 is a classic soul track \u2014 DJ enters at T2 mid-track groove section (from_bar=40) intentionally skipping the slow build. The 9A to 10B move (F minor to D major) is borderline \u2014 requires careful harmonic stem management. Entering T2 at full groove energy masks the BPM stretch.",
+  "annotated_actions": [
+    {
+      "action": {
+        "type": "play",
+        "track": "T1",
+        "at_bar": 0,
+        "from_bar": 8
+      },
+      "t1_state": "T1 bar 8: first groove bar after 8-bar intro, kick+bass+soulful pads, RMS 0.42",
+      "why": "from_bar=8: skips T1 8-bar sparse intro."
+    },
+    {
+      "action": {
+        "type": "fade_out",
+        "track": "T1",
+        "start_bar": 64,
+        "duration_bars": 16
+      },
+      "t1_state": "T1 bar 72 (play bar 64 + from_bar 8): mid-groove, drums=0.55, rms=0.42, harmonic=0.45",
+      "t2_state": "T2 bar 40: established mid-track groove, kick+bass+strings, RMS 0.55",
+      "why": "T1 at steady groove. T2 at bar 40 already in full groove body (skipping its 40-bar intro build). Large BPM stretch (11.7) is hidden by T2 entering at full energy \u2014 listener ear snaps to T2 groove immediately."
+    },
+    {
+      "action": {
+        "type": "fade_in",
+        "track": "T2",
+        "start_bar": 64,
+        "duration_bars": 16,
+        "from_bar": 40,
+        "stems": {
+          "drums": 0.8,
+          "bass": 0.0,
+          "vocals": 0.0,
+          "other": 0.6
+        }
+      },
+      "t2_state": "T2 bar 40: full strings + kick active (drums=0.7), bass=0.55 but held at 0 via stem",
+      "why": "T2 from_bar=40 is mid-track groove \u2014 drums already at full energy. other:0.6 brings in T2 strings (10B), which are slightly dissonant with 9A \u2014 keep duration short (16 bars) to minimize harmonic overlap."
+    },
+    {
+      "action": {
+        "type": "bass_swap",
+        "track": "T1",
+        "at_bar": 72,
+        "incoming_track": "T2"
+      },
+      "t1_state": "T1 play bar 72: bass=0.20 (fading), drums=0.30",
+      "t2_state": "T2 bar 48 (from_bar=40 + 8): T2 bass was held via stem and is now being released",
+      "why": "T1 bass diminishing. T2 bass held via stem. Swap transfers bass. At the swap moment T2 full bass comes in \u2014 high-impact moment of the blend."
+    },
+    {
+      "action": {
+        "type": "play",
+        "track": "T2",
+        "at_bar": 80,
+        "from_bar": 56
+      },
+      "t2_state": "T2 bar 56: full soul groove, organ+bass+strings+kick, RMS 0.60",
+      "why": "T2 full mix from bar 56 \u2014 well into established groove. Large BPM transition complete."
+    }
+  ]
+}

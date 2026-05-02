@@ -1,0 +1,82 @@
+{
+  "id": "ex_003",
+  "meta": {
+    "genre": "deep_house",
+    "t1_bpm": 112.3,
+    "t2_bpm": 123.0,
+    "t1_camelot": "4A",
+    "t2_camelot": "3A",
+    "camelot_distance": 1,
+    "bpm_delta": 10.7,
+    "exit_section": "groove",
+    "overlap_bars": 16,
+    "scenario": "deep house +1 move, 10.7 BPM gap \u2014 large stretch, groove exit",
+    "source": "Jeremy Underground - Essential Mix 2018-09-08",
+    "t1_artist": "Rocket",
+    "t1_title": "Come Together",
+    "t2_artist": "Al-Tone Edits",
+    "t2_title": "Remember Me"
+  },
+  "transition_arc": "Significant BPM jump (10.7 BPM, ~9.5%) \u2014 both tracks time-stretched to ref BPM. T1 exits from groove, T2 enters from its first downbeat (clean percussion intro). The large BPM gap is hidden by the 16-bar fade: listener ear re-anchors to T2's pulse gradually. Bass swap is critical here \u2014 two stretched basslines at different native BPMs would clash.",
+  "annotated_actions": [
+    {
+      "action": {
+        "type": "play",
+        "track": "T1",
+        "at_bar": 0,
+        "from_bar": 0
+      },
+      "t1_state": "T1 bar 0: groove, kick+bass+organ, RMS 0.45",
+      "why": "Standard groove entry."
+    },
+    {
+      "action": {
+        "type": "fade_out",
+        "track": "T1",
+        "start_bar": 64,
+        "duration_bars": 16
+      },
+      "t1_state": "T1 bar 64: drums=0.6, harmonic=0.4, rms=0.45 \u2014 mid-groove, steady energy",
+      "t2_state": "T2 bar 0: clean intro, percussion only, drums=0.3, bass=0.0, rms=0.15",
+      "why": "T1 at bar 64 is past its peak (bars 32-48). Energy is steady but not building \u2014 safe exit. T2 bar 0 is a genuine percussion intro, allowing gradual introduction."
+    },
+    {
+      "action": {
+        "type": "fade_in",
+        "track": "T2",
+        "start_bar": 64,
+        "duration_bars": 16,
+        "from_bar": 0,
+        "stems": {
+          "drums": 0.8,
+          "bass": 0.0,
+          "vocals": 0.0,
+          "other": 0.6
+        }
+      },
+      "t2_state": "T2 bar 0: light kick + hi-hats, bass=0.0, harmonic=0.1 (pads filtering in)",
+      "why": "T2 from_bar=0: genuine percussion-only intro. drums:0.8 adds T2's light kick texture. bass:0.0 prevents clash with T1's bass. other:0.6 brings in T2's organ early \u2014 4A and 3A are compatible."
+    },
+    {
+      "action": {
+        "type": "bass_swap",
+        "track": "T1",
+        "at_bar": 72,
+        "incoming_track": "T2"
+      },
+      "t1_state": "T1 bar 72: bass=0.2 (fading), drums=0.3, rms=0.25 \u2014 clearly diminishing",
+      "t2_state": "T2 bar 8: bass starting to appear at 0.3, kick established",
+      "why": "T2 bass is just entering. Swap here transfers the low end cleanly before T2 bass fully locks in at bar 16."
+    },
+    {
+      "action": {
+        "type": "play",
+        "track": "T2",
+        "at_bar": 80,
+        "from_bar": 16
+      },
+      "t2_state": "T2 bar 16: full groove \u2014 kick, bass, organ all active, RMS 0.50",
+      "why": "T2 full groove starts. from_bar=16 is T2's first full-groove bar after its intro."
+    }
+  ]
+}
