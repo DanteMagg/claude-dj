@@ -644,11 +644,6 @@ def _annotate_bar(row: dict, prev: Optional[dict]) -> str:
 
 
 def _format_zone_table(zone: list[dict], track_id: str, label: str) -> str:
-    """
-    Render a compact per-bar zone table for injection into the planning prompt.
-    Example row:
-      b 80: d=0.82 h=0.71 r=0.75 bright onsets=4
-    """
     if not zone:
         return f"{track_id} {label}: (no zone data)\n"
 
@@ -660,9 +655,13 @@ def _format_zone_table(zone: list[dict], track_id: str, label: str) -> str:
     for row in zone:
         brightness = "bright" if row["brightness"] > 0.55 else ("mid" if row["brightness"] > 0.30 else "dark ")
         annotation = _annotate_bar(row, prev)
+        vocals_val = row.get("vocals", 0.0)
+        tags       = row.get("tags", [])
+        tag_str    = "  " + " ".join(f"[{t}]" for t in tags) if tags else ""
         lines.append(
             f"  b{row['bar']:3d}: d={row['drums']:.2f} h={row['harmonic']:.2f} "
-            f"r={row['rms']:.2f} {brightness} onsets={row['onsets']}{annotation}"
+            f"r={row['rms']:.2f} {brightness} onsets={row['onsets']} "
+            f"vox={vocals_val:.2f}{annotation}{tag_str}"
         )
         prev = row
 
