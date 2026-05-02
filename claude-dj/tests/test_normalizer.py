@@ -94,3 +94,35 @@ def test_three_track_set_two_bass_swaps():
     assert "T2" in tracks_cut
     assert "T2" in tracks_restore
     assert "T3" in tracks_restore
+
+
+def test_loop_bars_2_preserved():
+    """2-bar loops must survive normalization (used by tech house concepts)."""
+    s = _script([MixAction(type="loop", track="T1", start_bar=8, loop_bars=2, loop_repeats=2)])
+    result = normalize(s)
+    loop = next(a for a in result.actions if a.type == "loop")
+    assert loop.loop_bars == 2
+
+
+def test_loop_bars_1_snaps_to_2():
+    """1-bar loop (too short) snaps up to 2."""
+    s = _script([MixAction(type="loop", track="T1", start_bar=8, loop_bars=1, loop_repeats=1)])
+    result = normalize(s)
+    loop = next(a for a in result.actions if a.type == "loop")
+    assert loop.loop_bars == 2
+
+
+def test_loop_bars_3_snaps_to_4():
+    """3-bar loop snaps to nearest valid value (4)."""
+    s = _script([MixAction(type="loop", track="T1", start_bar=8, loop_bars=3, loop_repeats=1)])
+    result = normalize(s)
+    loop = next(a for a in result.actions if a.type == "loop")
+    assert loop.loop_bars == 4
+
+
+def test_loop_bars_4_preserved():
+    """4-bar loops must still work after the change."""
+    s = _script([MixAction(type="loop", track="T1", start_bar=8, loop_bars=4, loop_repeats=1)])
+    result = normalize(s)
+    loop = next(a for a in result.actions if a.type == "loop")
+    assert loop.loop_bars == 4

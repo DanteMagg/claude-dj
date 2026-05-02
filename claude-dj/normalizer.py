@@ -28,6 +28,7 @@ def normalize(script: MixScript) -> MixScript:
     actions = _clamp_eq(actions)
     actions = _clamp_loops(actions)
     actions = _snap_bass_swap_bars(actions)
+    actions = _align_crossfade_starts(actions)
     actions = _fix_play_from_bar_after_fade_in(actions)
     actions = _inject_play_for_orphaned_fade_in(actions)
     actions = _inject_bass_swap_if_missing(actions)
@@ -66,6 +67,11 @@ def _snap_duration_to_phrase(bars: int) -> int:
 def _clamp_durations(actions: list[MixAction]) -> list[MixAction]:
     result = []
     for a in actions:
+        if a.type in ("fade_in", "fade_out") and a.duration_bars is None:
+            msg = f"set missing duration_bars={DURATION_PREFERRED_MIN} on {a.type}({a.track})"
+            logger.debug("NORMALIZER FIX: %s", msg)
+            print(f"[normalizer] {msg}")
+            a = dataclasses.replace(a, duration_bars=DURATION_PREFERRED_MIN)
         if a.duration_bars is not None:
             clamped = max(DURATION_MIN, min(DURATION_MAX, a.duration_bars))
             if a.type in ("fade_in", "fade_out"):
@@ -75,17 +81,24 @@ def _clamp_durations(actions: list[MixAction]) -> list[MixAction]:
     return result
 
 
+_VALID_LOOP_BARS = (2, 4, 8, 16, 32)
+
+
+def _snap_loop_bars(bars: int) -> int:
+    """Snap to nearest valid loop length. Minimum is 2 bars (tech house short loops)."""
+    bars = max(2, bars)
+    return min(_VALID_LOOP_BARS, key=lambda v: (abs(v - bars), -v))
+
+
 def _clamp_loops(actions: list[MixAction]) -> list[MixAction]:
-    """Snap loop_bars and start_bar to phrase multiples; cap loop_repeats to [1, 4]."""
+    """Snap loop_bars to valid values; cap loop_repeats to [1, 4]."""
     result = []
     for a in actions:
         if a.type != "loop":
             result.append(a)
             continue
-        lb = a.loop_bars or PHRASE
-        lb = max(PHRASE // 2, round(lb / PHRASE) * PHRASE)
+        lb = _snap_loop_bars(a.loop_bars or 4)
         reps = max(1, min(4, a.loop_repeats or 1))
-        # start_bar must be a phrase boundary — floor to nearest multiple of PHRASE
         start = (a.start_bar or 0) // PHRASE * PHRASE
         result.append(dataclasses.replace(a, loop_bars=lb, loop_repeats=reps, start_bar=start))
     return result
@@ -141,6 +154,38 @@ def _find_all_transitions(
                     fi.track,   # incoming
                 ))
     return transitions
+
+
+def _align_crossfade_starts(actions: list[MixAction]) -> list[MixAction]:
+    """
+    fade_out.start_bar must not precede fade_in.start_bar — a gap where T1 is fading
+    but T2 hasn't started creates silence. Snap fade_out.start_bar forward to match
+    fade_in.start_bar when it's more than 4 bars early.
+
+    Only snaps when the fade_out and fade_in windows actually overlap in time — prevents
+    incorrectly pairing transitions from different parts of a 3+ track set.
+    """
+    fade_ins = [a for a in actions if a.type == "fade_in"]
+    result = []
+    for a in actions:
+        if a.type == "fade_out" and a.start_bar is not None:
+            fo_end = a.start_bar + (a.duration_bars or DURATION_PREFERRED_MIN)
+            for fi in fade_ins:
+                if fi.track == a.track or fi.start_bar is None:
+                    continue
+                fi_end = fi.start_bar + (fi.duration_bars or DURATION_PREFERRED_MIN)
+                if fi.start_bar < fo_end and a.start_bar < fi_end:
+                    if a.start_bar < fi.start_bar - 4:
+                        msg = (
+                            f"snapped fade_out({a.track}) start_bar {a.start_bar}→{fi.start_bar} "
+                            f"(was {fi.start_bar - a.start_bar} bars before fade_in)"
+                        )
+                        logger.debug("NORMALIZER FIX: %s", msg)
+                        print(f"[normalizer] {msg}")
+                        a = dataclasses.replace(a, start_bar=fi.start_bar)
+                    break
+        result.append(a)
+    return result
 
 
 def _fix_play_from_bar_after_fade_in(actions: list[MixAction]) -> list[MixAction]:
@@ -380,7 +425,9 @@ def _restore_incoming_eq(actions: list[MixAction]) -> list[MixAction]:
 
 
 def _snap_bass_swap_bars(actions: list[MixAction]) -> list[MixAction]:
-    """Snap every bass_swap.at_bar to the nearest multiple of 8."""
+    """Snap every bass_swap.at_bar to the nearest multiple of 8, co-snapping paired bass restores."""
+    # Pass 1: snap bass_swaps, record (incoming_track, old_bar) -> snapped_bar for any moves
+    snap_map: dict[tuple[str, int], int] = {}
     result = []
     for a in actions:
         if a.type == "bass_swap" and a.at_bar is not None:
@@ -389,9 +436,31 @@ def _snap_bass_swap_bars(actions: list[MixAction]) -> list[MixAction]:
                 msg = f"snapped bass_swap({a.track}) at_bar {a.at_bar}→{snapped} (phrase alignment)"
                 logger.debug("NORMALIZER FIX: %s", msg)
                 print(f"[normalizer] {msg}")
+                if a.incoming_track:
+                    snap_map[(a.incoming_track, a.at_bar)] = snapped
                 a = dataclasses.replace(a, at_bar=snapped)
         result.append(a)
-    return result
+
+    if not snap_map:
+        return result
+
+    # Pass 2: co-snap any eq(incoming_track, bar=old_bar, low=1.0) restore paired with the swap
+    final = []
+    for a in result:
+        if (
+            a.type == "eq"
+            and a.bar is not None
+            and a.low == 1.0
+            and (a.track, a.bar) in snap_map
+        ):
+            snapped_bar = snap_map[(a.track, a.bar)]
+            msg = f"co-snapped eq({a.track}) bar {a.bar}→{snapped_bar} (bass_swap restore alignment)"
+            logger.debug("NORMALIZER FIX: %s", msg)
+            print(f"[normalizer] {msg}")
+            a = dataclasses.replace(a, bar=snapped_bar)
+        final.append(a)
+
+    return final
 
 
 def _inject_bass_swap_if_missing(actions: list[MixAction]) -> list[MixAction]:
