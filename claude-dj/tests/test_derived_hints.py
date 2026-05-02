@@ -154,3 +154,44 @@ def test_technique_recommendation_has_avoid_clause():
     t2 = _make_zone(0, 16)
     result = _compute_zone_hints(t1, t2)
     assert "AVOID" in result
+
+
+# ── Phase 1 profile injection ────────────────────────────────────────────────
+
+from mix_director import _format_profiles_section
+
+
+def test_profiles_section_empty_when_no_profiles():
+    result = _format_profiles_section(None, None)
+    assert result == ""
+
+
+def test_profiles_section_shows_t1_outro():
+    from schema import LoopCandidate, MixingProfile, TransitionWindow
+    p1 = MixingProfile(
+        vocal_bars=[[16, 48]],
+        loop_candidates=[LoopCandidate(start_bar=80, bars=8, reason="clean")],
+        transition_windows=[TransitionWindow(bar=96, quality=9, character="drums-only")],
+        intro_type="melodic",
+        outro_type="drums-only",
+        dj_notes="Clean outro from bar 96.",
+    )
+    result = _format_profiles_section(p1, None)
+    assert "T1 MIXING PROFILE" in result
+    assert "outro: drums-only" in result
+    assert "bar 96" in result
+
+
+def test_profiles_section_shows_t2_intro():
+    from schema import MixingProfile
+    p2 = MixingProfile(
+        vocal_bars=[],
+        loop_candidates=[],
+        transition_windows=[],
+        intro_type="drums-only",
+        outro_type="fade-silence",
+        dj_notes="Drums-only intro.",
+    )
+    result = _format_profiles_section(None, p2)
+    assert "T2 MIXING PROFILE" in result
+    assert "intro: drums-only" in result

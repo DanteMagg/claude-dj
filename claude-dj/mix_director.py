@@ -425,7 +425,7 @@ _WINDOW_PROMPT_TEMPLATE = """\
 Given these two track summaries, choose the optimal transition window.
 
 {summaries}
-{peek_section}
+{profiles_section}{peek_section}
 Output a single JSON object:
 {{
   "t1_exit_bar":  <int: bar in T1 where fade_out starts — use its mix_out or breakdown_start cue>,
@@ -455,6 +455,48 @@ def _format_peek_rows(rows: list[dict], probe_bar: int) -> str:
             f"  b{r['bar']:3d}: d={r['drums']:.2f} h={r['harmonic']:.2f} "
             f"r={r['rms']:.2f} on={r['onsets']}{marker}"
         )
+    return "\n".join(lines) + "\n\n"
+
+
+def _format_profiles_section(t1_profile, t2_profile) -> str:
+    """Format mixing profile summaries for Phase 1 window selection prompt."""
+    if t1_profile is None and t2_profile is None:
+        return ""
+
+    lines: list[str] = []
+
+    if t1_profile is not None:
+        vocal_str = (
+            "bars " + ", ".join(f"{s}–{e}" for s, e in t1_profile.vocal_bars)
+            if t1_profile.vocal_bars else "none"
+        )
+        best_exit = t1_profile.transition_windows[0] if t1_profile.transition_windows else None
+        exit_str = (
+            f"bar {best_exit.bar} (quality={best_exit.quality}, {best_exit.character})"
+            if best_exit else "unknown"
+        )
+        notes_preview = t1_profile.dj_notes[:120] + "…" if len(t1_profile.dj_notes) > 120 else t1_profile.dj_notes
+        lines += [
+            "T1 MIXING PROFILE:",
+            f"  intro: {t1_profile.intro_type} | outro: {t1_profile.outro_type}",
+            f"  vocals: {vocal_str} — avoid overlapping these bars during transition",
+            f"  best exit window: {exit_str}",
+            f"  DJ notes: \"{notes_preview}\"",
+        ]
+
+    if t2_profile is not None:
+        first_voc = min(t2_profile.vocal_bars[0]) if t2_profile.vocal_bars else None
+        voc_str = f"first vocal bar {first_voc}" if first_voc is not None else "no vocals detected"
+        lines += [
+            "",
+            "T2 MIXING PROFILE:",
+            f"  intro: {t2_profile.intro_type} | outro: {t2_profile.outro_type}",
+            f"  {voc_str}",
+        ]
+        if t2_profile.dj_notes and "[stems unavailable" not in t2_profile.dj_notes:
+            notes_preview = t2_profile.dj_notes[:120] + "…" if len(t2_profile.dj_notes) > 120 else t2_profile.dj_notes
+            lines.append(f"  DJ notes: \"{notes_preview}\"")
+
     return "\n".join(lines) + "\n\n"
 
 
@@ -527,7 +569,17 @@ def select_transition_window(
         logger.warning("select_window peek failed (%s) — skipping zone hint", exc)
         print(f"[mix_director] select_window peek failed ({exc}) — skipping zone hint")
 
-    prompt = _WINDOW_PROMPT_TEMPLATE.format(summaries=summaries, peek_section=peek_section)
+    # Profile summary injection (Phase 0 data)
+    profiles_section = _format_profiles_section(
+        getattr(t1, "mixing_profile", None),
+        getattr(t2, "mixing_profile", None),
+    )
+
+    prompt = _WINDOW_PROMPT_TEMPLATE.format(
+        summaries=summaries,
+        peek_section=peek_section,
+        profiles_section=profiles_section,
+    )
     if concept:
         d = concept.get("directives", {})
         avoid = ", ".join(d.get("avoid_technique", []))
