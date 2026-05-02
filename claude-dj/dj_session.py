@@ -530,8 +530,12 @@ async def dj_worker(
         state.deck_b = None
         state.current_start_bar = next_start_bar
         current_analysis = next_analysis
-        # Update wall-clock reference for the new current track
-        session_wall_start = _time.monotonic() - next_start_bar * secs_per_bar
+        # Do NOT re-anchor session_wall_start here using _time.monotonic() — that time
+        # includes asyncio.sleep overhead and planning latency, causing cumulative drift.
+        # session_wall_start was set once at session start and is still correct:
+        #   actual_playback_bar = (monotonic() - session_wall_start) / secs_per_bar
+        # t2_play_wall == session_wall_start + next_start_bar * secs_per_bar, so
+        # re-anchoring would be a no-op if done correctly anyway.
 
     # Worker exited the transition loop — pool exhausted or step limit reached.
     if state.status == "playing":

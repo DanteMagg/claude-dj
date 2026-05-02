@@ -187,10 +187,14 @@ def _apply_gain_ramp(
         gain = np.full(n_frames, gain_at_ramp_start, dtype=np.float32)
     else:
         frac = np.clip((t - ramp_start_ms) / ramp_dur, 0.0, 1.0)
-        if gain_at_ramp_end > gain_at_ramp_start:   # fade in: sin curve
-            gain = np.sin(frac * np.pi / 2).astype(np.float32)
-        else:                                        # fade out: cos curve
-            gain = np.cos(frac * np.pi / 2).astype(np.float32)
+        # Perceptually smooth curve from gain_at_ramp_start → gain_at_ramp_end.
+        # Uses sin² (equal-power) interpolation which works correctly for any
+        # start/end gain pair — not just (0→1) or (1→0).
+        if gain_at_ramp_end >= gain_at_ramp_start:
+            curve = np.sin(frac * np.pi / 2).astype(np.float32)  # 0 → 1
+        else:
+            curve = np.cos(frac * np.pi / 2).astype(np.float32)  # 1 → 0
+        gain = gain_at_ramp_start + (gain_at_ramp_end - gain_at_ramp_start) * curve
 
     if audio.channels == 2:
         gain = np.repeat(gain, 2)
@@ -551,17 +555,11 @@ def render_chunk(
                     track_chunk = orig_chunk[:pos] + eq_chunk[pos:]
             else:
                 track_chunk = eq_chunk
+            # EQ restore (eq_end_ms is never set — restore fires as a new EQ action
+            # with low=1.0,mid=1.0,high=1.0 injected by normalizer._restore_incoming_eq.
+            # That action is caught by the upcoming_eq detection above, so no extra
+            # exit-boundary handling is needed here.
 
-            # Exit boundary mid-chunk: EQ → original over xf ms
-            eq_end_ms = cursor.eq_end_ms
-            if eq_end_ms is not None and start_ms < eq_end_ms <= end_ms:
-                # Place the blend so it ends exactly at eq_end_ms
-                pos      = max(0, (eq_end_ms - start_ms) - xf)
-                fade_len = min(xf, eq_end_ms - start_ms - pos)
-                if fade_len > 4:
-                    blend = _linear_xfade(eq_chunk[pos:], orig_chunk[pos:], fade_len)
-                    track_chunk = (track_chunk[:pos] + blend
-                                   + orig_chunk[pos + fade_len:])
 
         canvas = canvas.overlay(track_chunk)
 

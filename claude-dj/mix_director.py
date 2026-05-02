@@ -954,12 +954,18 @@ def select_next_track(
         messages=[{"role": "user", "content": prompt}],
     )
     print(f"[mix_director] select_next_track tokens -- in:{response.usage.input_tokens} out:{response.usage.output_tokens}")
-    chosen_id = response.content[0].text.strip().strip('"').strip("'")
+    raw = response.content[0].text.strip().strip('"').strip("'")
     valid_ids = {c.id for c in candidates}
-    if chosen_id not in valid_ids:
-        # fallback: pick closest BPM
-        chosen_id = min(candidates, key=lambda c: abs(c.bpm - playing.bpm)).id
-    return chosen_id
+    if raw in valid_ids:
+        return raw
+    # Claude returned something other than a track ID (title, filename, or garbled output).
+    # Log it so it's visible, then fall back to closest BPM.
+    fallback = min(candidates, key=lambda c: abs(c.bpm - playing.bpm))
+    print(
+        f"[mix_director] select_next_track: Claude returned {raw!r} which is not a valid ID "
+        f"({sorted(valid_ids)}). Falling back to closest-BPM: {fallback.id} ({fallback.title!r})"
+    )
+    return fallback.id
 
 
 def _dict_to_mix_script(data: dict, analyses: list[TrackAnalysis]) -> MixScript:
