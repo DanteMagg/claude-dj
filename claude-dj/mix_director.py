@@ -231,144 +231,34 @@ _TASK_PROMPT = """
 
 ## YOUR TASK
 
-You are acting as the Claude DJ brain. You will receive structured audio analysis for a set of tracks and must output a professional mix script as JSON.
-
-Tracks now include **semantic section labels** (intro / groove / breakdown / drop / outro) derived from energy and stem analysis. Use them directly.
-
-Follow the operational checklist in section 6 of the skill document for every transition. Apply the bass swap from section 3.1 via `bass_swap`. Use stem layering from section 3.2 via `fade_in` stems. Choose crossfade length from section 3.3.
-
----
-
-### HOW TO READ THE TRACK DATA
-
-Each track summary includes:
-
-```
-SECTIONS: INTRO(b0-16,e=3,drums) -> GROOVE(b16-48,e=7,drums+bass+other) -> BREAKDOWN(b48-64,e=4,other) -> DROP(b64-96,e=9,drums+bass+vox+other) -> OUTRO(b96-112,e=4,drums)
-CUES:     mix_in=b16  drop_bar=b64  breakdown_start=b48  mix_out=b96
-ENERGY CURVE: [........]
-```
-
-**Using sections to pick transition windows:**
-
-| You want to...            | Look for on T1 (outgoing)       | Look for on T2 (incoming)             |
-|---------------------------|---------------------------------|---------------------------------------|
-| Standard blend            | OUTRO or BREAKDOWN section      | Start of INTRO                        |
-| Energy drop               | BREAKDOWN -> use as T1 exit     | INTRO of lower-energy track           |
-| Energy rise               | End of T1's OUTRO               | T2's GROOVE or DROP entry             |
-| Key-clash escape          | Drum-only portion of OUTRO      | INTRO (drums only, no harmonic content)|
-
-**Critical reading rules:**
-- `mix_in` cue = where T2 should START playing (its intro, the DJ-friendly entry point)
-- `mix_out` cue = where T1's outro begins -- start T1's `fade_out` here or slightly before
-- `breakdown_start` = ideal T1 exit window for smooth transitions (sparse, low-density)
-- `drop_bar` = DO NOT start a transition here; it's the audience-payoff section
-
----
-
-### TRANSITION WINDOW SELECTION
-
-**Step 1 -- Find T1's exit window:**
-  - Best: T1's OUTRO section (cleanest percussion, designed for DJ mixing)
-  - Good: T1's last BREAKDOWN (sparse, low-density, room for T2 to enter)
-  - Emergency: last GROOVE section if no OUTRO/BREAKDOWN exists
-
-**Step 2 -- Find T2's entry point:**
-  - Always: T2's INTRO start (= `mix_in` cue). Intro is drum/percussion-only or sparse.
-  - Never: T2's DROP or main GROOVE (too dense, no headroom for T1)
-
-**Step 3 -- Overlap duration:**
-  - T1 OUTRO -> T2 INTRO: 16-32 bars (standard)
-  - T1 BREAKDOWN -> T2 INTRO: 24-32 bars (slower, melodic blend)
-  - Key clash: reduce to 8 bars, drums-only stems on T2
-
-**Step 4 -- Bass swap:**
-  - Place at the first 8-bar phrase boundary after T2's fade_in starts
-  - T2's `fade_in` stems: `bass: 0.0` until the swap fires
-  - After the swap, T1's bass is gone, T2's bass is in
-
----
-
-### TRANSITION LENGTH -- CRITICAL
-
-- **Default overlap: 16 bars.** Use 32 for deep/progressive styles; 8 for cuts or key-clashes.
-- **Never shorter than 8 bars** unless a deliberate cut (note in reasoning).
-- Safety layer snaps `duration_bars` to phrase multiples (8/16/24/32) with minimum 16 bars.
-- T2 `fade_in.start_bar` + `duration_bars` = T2 `play.at_bar` (must match exactly).
-- T1 `fade_out.start_bar` = same as T2's `fade_in.start_bar` (simultaneous crossfade).
+You are the Claude DJ brain. Output a professional mix script as JSON from the structured track analysis below. Follow the skill document and operational checklist in section 6 for every transition.
 
 ---
 
 ### FADE_OUT IS MANDATORY FOR EVERY NON-FINAL TRACK
 
-**Every track except the very last one in the set MUST have a `fade_out` action.**
-A missing `fade_out` means T1 plays all the way to end-of-file in silence before T2 begins —
-the textbook DJ fail. The normalizer will auto-inject one if you forget, but it will be wrong
-(no zone data, no phrase awareness). Schedule it yourself at the mix_out cue or BREAKDOWN.
-This is not optional. It is as mandatory as `bass_swap`.
+Every track except the very last MUST have a `fade_out`. Schedule it at the mix_out cue or BREAKDOWN. The normalizer will inject one as a safety net but it will be placed wrong.
 
 ---
 
-### SET STRUCTURE -- ENERGY ARC
+### BASS SWAP PATTERN — use this exact sequence every blend transition
 
-- Play T1 from its `mix_in` cue through to near its `mix_out` cue.
-- **Do not exit T1 at its first BREAKDOWN.** Let T1 run at least through one DROP before transitioning.
-- Build an energy arc: note whether the set rises, holds, or descends in reasoning.
-- A 2-track set: 8-15 min. A 4-track set: 20-40 min.
+```
+eq(T2, bar=<fade_in.start_bar>, low=0.0)          // kill T2 bass before fade_in
+fade_in(T2, start_bar=X, duration_bars=N, from_bar=Y)
+bass_swap(T1, at_bar=<midpoint multiple of 8>, incoming_track="T2")
+eq(T2, bar=<bass_swap.at_bar>, low=1.0)            // restore T2 bass at swap
+play(T2, at_bar=X+N, from_bar=Y+N)
+fade_out(T1, start_bar=X, duration_bars=N)
+```
 
----
-
-### EXECUTOR BEHAVIOR
-
-- `play` / `fade_in` / `fade_out` / `eq` act on **per-track layers** summed at output.
-- **Every `fade_in` MUST specify `from_bar` explicitly.** Never omit it or leave it 0 unless
-  the track genuinely starts from source bar 0. Use the zone data to find the first non-silent bar.
-- **Every `fade_in` MUST be followed by a `play`** at `at_bar = fade_in.start_bar + fade_in.duration_bars`
-  with `from_bar = fade_in.from_bar + fade_in.duration_bars` (exactly — no other value is correct).
-  Examples: fade_in(start_bar=72, duration_bars=16, from_bar=8) → play(at_bar=88, from_bar=24).
-           fade_in(start_bar=64, duration_bars=16, from_bar=16) → play(at_bar=80, from_bar=32).
-  Double-check: play.from_bar − fade_in.from_bar must equal exactly fade_in.duration_bars.
-  If you set play.from_bar=0, the executor will hear bars 0–16 of T2 again — double-play of the intro.
-- `bass_swap` cuts T1's low band (<=200 Hz) to silence. **MANDATORY on every blend transition**.
-  Required fields: `track` (outgoing), `at_bar` (multiple of 8), **`incoming_track`** (incoming track id).
-  **`incoming_track` is required** — without it the bass stem overlay is skipped entirely.
-  Fire ONCE per transition at a phrase boundary (multiple of 8) inside the overlap window, after
-  T2's fade_in is ~50% complete.
-  **EXACT MECHANICS**: bass_swap cuts T1's bass via an HPF (T1 loses sub). It does NOT automatically
-  restore T2's bass — T2's bass was silenced in the fade_in stems (bass=0.0) and stays silent until
-  the `play` action fires. The `play` action at `fade_in.start_bar + fade_in.duration_bars` is what
-  restores T2's bass (the full mix plays, including bass). So:
-    - fade_in.stems.bass = 0.0       → T2 bass silent during intro blend
-    - bass_swap(incoming_track="T2") → T1 bass HPF-cut; T2 bass stem overlaid from swap bar
-    - play at end of fade_in         → T2 full mix takes over (bass confirmed in full mix)
-  DO NOT emit a second fade_in or eq to restore T2's bass — the play action handles it.
-- `eq`: **PERSISTENT from `bar` to end of mix** — it does NOT auto-reset. Think of it as a
-  channel EQ knob you physically turn: if you turn it down and don't turn it back up, it stays
-  down forever. `low` controls a continuous HPF cutoff — low=1.0 is bypass, low=0.5 cuts below
-  ~80 Hz (sub-bass only), low=0.0 cuts below 200 Hz (full bass removed). `high` is a shelf at
-  8 kHz (1.0=unity, 0.0=−12 dB). `mid` is a ±6 dB broadband trim.
-  **MANDATORY PATTERN**: any non-unity eq MUST be followed by a matching restore action:
-  `{"type":"eq","track":"T2","bar":<blend_end_bar>,"low":1.0,"mid":1.0,"high":1.0}`.
-  If you write `eq(T2, bar=72, mid=0.4)` and never restore, T2 will play with suppressed mids
-  for its entire run. The normalizer injects a restore automatically, but its bar placement may
-  be wrong — always write it explicitly. Never have both T1 and T2 at low > 0.5 simultaneously.
-- `loop`: extend an outro or hold a peak phrase.
-  RULES: `start_bar` MUST be a multiple of 8. Use 4- or 8-bar loops only. 1-3 repeats max.
-  MECHANICS: after the loop, the track automatically resumes from source bar
-  `start_bar + loop_bars * loop_repeats`. What this means for what follows:
-    - Fade-out (typical): `fade_out` at `start_bar: (start_bar + loop_bars * loop_repeats)`.
-    - Drop/continue: emit NO play -- the drop fires at the right time automatically.
-      Exception: if you looped 2+ repeats and need to re-enter an earlier source bar,
-      add `play` with `from_bar = start_bar + loop_bars` (one phrase past the loop start).
-    - T2 fade_in CAN begin inside the loop window -- looping T1 creates stable runway for T2.
-  DO NOT place loop and fade_out on the same bar for the same track.
+`bass_swap` REQUIRES `incoming_track`. Fire at a multiple-of-8 phrase boundary ~50% into the fade window (concept directives may specify early=25% or late=75%).
 
 ---
 
 ### OUTPUT SCHEMA
 
-Output ONLY valid JSON. No prose outside it. Use `reasoning` for concise notes (3-5 sentences
-max -- cite specific section labels, bar numbers, key move, energy arc, and bass swap placement).
+Output ONLY valid JSON. `reasoning`: 3–5 sentences citing section labels, bar numbers, key move, energy arc, bass swap placement.
 
 ```json
 {
@@ -378,23 +268,19 @@ max -- cite specific section labels, bar numbers, key move, energy arc, and bass
     {"id": "T1", "path": "string", "bpm": 128.0, "first_downbeat_s": 0.5}
   ],
   "actions": [
-    {"type": "play",      "track": "T1", "at_bar": 0,  "from_bar": 16},
-    {"type": "fade_in",   "track": "T2", "start_bar": 80, "duration_bars": 16, "from_bar": 0,
-     "stems": {"drums": 0.8, "bass": 0.0, "vocals": 0.0, "other": 0.6}},
+    {"type": "play",      "track": "T1", "at_bar": 16, "from_bar": 16},
+    {"type": "eq",        "track": "T2", "bar": 80,    "low": 0.0, "mid": 1.0, "high": 1.0},
+    {"type": "fade_in",   "track": "T2", "start_bar": 80, "duration_bars": 16, "from_bar": 8},
     {"type": "bass_swap", "track": "T1", "at_bar": 88, "incoming_track": "T2"},
-    {"type": "play",      "track": "T2", "at_bar": 96, "from_bar": 16},
-    {"type": "fade_out",  "track": "T1", "start_bar": 88, "duration_bars": 16},
-    {"type": "loop",      "track": "T1", "start_bar": 64, "loop_bars": 8, "loop_repeats": 2},
-    {"type": "eq",        "track": "T2", "bar": 96, "low": 0.5, "mid": 1.0, "high": 1.0}
+    {"type": "eq",        "track": "T2", "bar": 88,    "low": 1.0, "mid": 1.0, "high": 1.0},
+    {"type": "play",      "track": "T2", "at_bar": 96, "from_bar": 24},
+    {"type": "fade_out",  "track": "T1", "start_bar": 80, "duration_bars": 16},
+    {"type": "loop",      "track": "T1", "start_bar": 64, "loop_bars": 8, "loop_repeats": 2}
   ]
 }
 ```
 
-Bar values depend on context: in a 2-track sub-script (plan_transition), all bars are LOCAL to each
-track's first downbeat (T1 bar 0 = T1 start, T2 bar 0 = T2 start). In single-track scripts, bars are
-track-local from bar 0. `stems` scalars 0.0-1.0. `eq` values 0.0-1.0 (0=kill, 1=unity).
-`bass_swap.at_bar` and `loop.start_bar` must be multiples of 8.
-`bass_swap` MUST include `"incoming_track": "<T2_id>"` — without it the bass stem restore is skipped and T2's bass stays silent until the play action fires.
+Bar values in plan_transition are LOCAL to each track's first downbeat. `eq` values: 0.0=kill, 1.0=unity. `bass_swap.at_bar` and `loop.start_bar` must be multiples of 8.
 """
 
 
