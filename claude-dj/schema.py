@@ -45,6 +45,30 @@ class CuePoint:
 
 
 @dataclass
+class LoopCandidate:
+    start_bar: int
+    bars: int       # snapped to valid: 2, 4, 8, 16
+    reason: str
+
+
+@dataclass
+class TransitionWindow:
+    bar: int
+    quality: int    # 1–10
+    character: str  # "drums-only" | "breakdown" | "sparse-melodic"
+
+
+@dataclass
+class MixingProfile:
+    vocal_bars: list            # list of [start_bar, end_bar] pairs
+    loop_candidates: list       # list of LoopCandidate, best first
+    transition_windows: list    # list of TransitionWindow, best first
+    intro_type: str             # "drums-only" | "melodic" | "instant-drop" | "silent"
+    outro_type: str             # "drums-only" | "cold-stop" | "vocals-to-end" | "fade-silence"
+    dj_notes: str
+
+
+@dataclass
 class BarGrid:
     n_bars: int
     beats_per_bar: int = 4
@@ -75,6 +99,7 @@ class TrackAnalysis:
     sections: list[Section]
     cue_points: list[CuePoint]
     stems: StemPaths
+    mixing_profile: Optional[MixingProfile] = None
 
     def to_dict(self) -> dict:
         import dataclasses
