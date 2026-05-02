@@ -1,0 +1,13 @@
+{
+  "name": "journey",
+  "display_name": "Journey",
+  "description": "Classic arc 3→10→3. Full narrative. Use the right technique for the current energy phase.",
+  "directives": {
+    "preferred_overlap_bars": 24,
+    "preferred_technique": "blend",
+    "avoid_technique": [],
+    "bass_swap_placement": "mid"
+  },
+  "example_ids": [],
+  "prompt_injection": "JOURNEY SET. This is the full narrative arc: warmup → build → peak → release → close. You have permission to use every technique. The key is using the RIGHT technique for the current phase.\n\nREAD THE ENERGY LEVEL to determine which technique to use:\n\nENERGY 3–5 (early set, warmup phase):\n  Use warmup blend: 32-bar overlap, stems={drums:0.7, other:0.2, bass:0.0}, bass_swap at midpoint, gentle eq(T1, low=0.5) pre-cut.\n\nENERGY 5–7 (build phase):\n  Use standard blend with loop extension: 24-bar overlap, stems={drums:0.8, other:0.4, bass:0.0}. Loop T1 if outro is short. bass_swap at midpoint.\n\nENERGY 7–9 (peak approach):\n  Use loop-and-build: loop(T1, loop_bars=8, loop_repeats=2), then 16-bar fade_in with drums:1.0. bass_swap early (bar +4 of 8).\n\nENERGY 9–10 (peak):\n  Use drop-to-drop or loop-and-build. 8–16 bar overlaps. Full energy entry. No patient stem buildup.\n\nENERGY DESCENDING (release phase):\n  Filter sweep dissolve: stepped eq(T1, high→mid→low) over 16 bars while T2 fades in as atmosphere. bass_swap at midpoint. No loops.\n\nENERGY 3–4 (close):\n  Echo-out simulation: eq(T1, high=0.3, mid=0.4) — thin T1 to near-nothing. T2 enters at low volume as T1 dissolves. 24-bar overlap, gentle.\n\nNEVER use the same technique twice in a row. The journey's power is variety."
+}

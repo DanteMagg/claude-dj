@@ -1,0 +1,13 @@
+{
+  "name": "sunrise",
+  "display_name": "Sunrise Set",
+  "description": "Maximum patience. Slow flat build 2→6. Transitions the crowd never notices.",
+  "directives": {
+    "preferred_overlap_bars": 32,
+    "preferred_technique": "blend",
+    "avoid_technique": ["cut", "drop_swap"],
+    "bass_swap_placement": "late"
+  },
+  "example_ids": [],
+  "prompt_injection": "SUNRISE SET. The goal is transitions the crowd never notices. Music just changes. Use maximum patience — 32 bars is the minimum, not the target.\n\nCROSS-DECK LOOP SWAP SEQUENCE:\n1. Find a clean 2-bar or 4-bar drum loop in T2 (drums only, h < 0.1 in zone data). Start it running: loop(T2, loop_bars=4, loop_repeats=4). T2 enters as repeating drum texture layered over T1. This is not a fade yet.\n2. fade_in(T2, duration_bars=32, from_bar=<first drum bar>, stems={drums:0.7, other:0.1, bass:0.0}). T2 sounds like distant percussion added to T1. Hold other at 0.1 for the first 16 bars.\n3. At bar +8: eq(T1, low=0.5) — gentle low reduction. Not a hard kill. Preserves warmth. This is not the bass swap.\n4. At bar +16: raise T2 other to 0.3. Atmosphere starts to bleed in underneath T1.\n5. At bar +24 (75% through the 32-bar window): bass_swap(T1, incoming_track=T2). eq(T1, low=0.0) hard kill. eq(T2, low=1.0) restore. The bass is heard as T1 releasing, not T2 arriving — because T2 has been in the mix for 24 bars already.\n6. loop(T1, start_bar=<last clean drum phrase>, loop_bars=4, loop_repeats=2). T1 loops into its final drum texture.\n7. play(T2, at_bar=<loop_end>, from_bar=<appropriate offset>). T2 plays freely while T1 loops down.\n8. fade_out(T1, start_bar=<loop resume point>, duration_bars=8). T1 loop dissolves.\n\nSTEM WEIGHTS: drums:0.7 for full 32 bars. other: 0.1→0.3 (open at bar 16). bass: 0.0 until step 5. Never open vocals unless T1 has been silent for 8+ bars.\n\nOVERLAP: 32 bars absolute minimum. 24 bars only if T1 has no clean material left.\nFORBIDDEN: window_bars < 24, bass_swap before 60% of window, cut, drop_swap, opening T2 bass before step 5."
+}

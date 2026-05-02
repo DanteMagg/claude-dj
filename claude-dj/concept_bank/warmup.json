@@ -1,0 +1,13 @@
+{
+  "name": "warmup",
+  "display_name": "Warm-Up Set",
+  "description": "Patient build from 2 to 7 energy. Invite the crowd in, never peak early.",
+  "directives": {
+    "preferred_overlap_bars": 32,
+    "preferred_technique": "blend",
+    "avoid_technique": ["cut", "drop_swap"],
+    "bass_swap_placement": "mid"
+  },
+  "example_ids": [],
+  "prompt_injection": "WARMUP SET. Your job is to invite the crowd in, not impress them. Energy starts low and climbs in small steps. Never play your best transition technique here — save it.\n\nBLEND SEQUENCE (every transition):\n1. T2 enters with fade_in stems={drums:0.7, other:0.2, bass:0.0}. Drums and distant atmosphere only. No bass, no lead elements yet.\n2. Hold T2 in this state for at least 16 bars. Let the groove layer before anything else enters.\n3. At bar +8: eq(T1, low=0.6) — gentle low reduction, not a hard cut. Preserve warmth.\n4. At bar +16: raise T2 other to 0.4 — pads and atmosphere start to bleed through.\n5. bass_swap at bar +16 (midpoint of a 32-bar window). eq(T1, low=0.0). eq(T2, low=1.0).\n6. eq(T1, mid=0.6) at bar +20 — ease T1 mids back to let T2 melody breathe.\n7. T1 fades out over the back half of the window. No loops needed unless T1 outro is under 16 bars clean.\n\nOVERLAP: 32 bars minimum. Use loop(T1, loop_bars=8, loop_repeats=2) if T1 has fewer than 24 bars of clean outro.\n\nFORBIDDEN: drop_swap, cut, window_bars < 24, any overlap where T2 full-mix enters before T1 is at low volume. Never play a track higher energy than the current track. Each T2 must be equal or +1 energy only."
+}

@@ -1,0 +1,13 @@
+{
+  "name": "hypnotic",
+  "display_name": "Hypnotic Set",
+  "description": "Techno discipline. Low sustained plateau 5→6. Texture shifts, not energy shifts.",
+  "directives": {
+    "preferred_overlap_bars": 32,
+    "preferred_technique": "blend",
+    "avoid_technique": ["cut", "drop_swap"],
+    "bass_swap_placement": "late"
+  },
+  "example_ids": [],
+  "prompt_injection": "HYPNOTIC SET. Techno discipline. Transitions are textural, not structural. The kick never stops — it just changes character. Energy stays in a narrow band. The crowd is in a trance state; sudden changes break the hypnosis.\n\nTEXTURAL BLEND SEQUENCE:\n1. T2 enters underneath T1's ongoing groove: fade_in(T2, duration_bars=32, stems={drums:0.0, other:0.8, bass:0.0}). T2 atmospherics, synth textures, and pads layer in while T1's kick continues. Drums on T2 are MUTED — the crowd follows T1's kick only.\n2. At bar +8: eq(T1, mid=0.7) — T1 mids pull back slightly. T2 textures emerge into the space.\n3. At bar +16: open T2 drums by updating stems to drums:0.6 (or use eq(T2, high=0.8) to bring hats in first). T2 hi-hats layer over T1's kick.\n4. At bar +24: binary kick swap. bass_swap(T1, incoming_track=T2). eq(T1, low=0.0). eq(T2, low=1.0). Instantaneous — one kick or the other, never both.\n5. eq(T1, mid=0.3) immediately after kick swap. T1 textures pull fully back.\n6. T1 fades out over the back 16 bars. T2 atmospherics are already fully established.\n\nOVERLAP: 32 bars minimum. 48–64 bars preferred for maximum invisibility. Techno tracks are designed for this — use the full outro.\n\nLOOP USAGE: Encouraged to extend short outros. loop(T1, loop_bars=4, loop_repeats=2) on any clean percussion-only phrase near T1 outro.\n\nFORBIDDEN: drop_swap, cuts, window_bars < 24, opening T2 kick before step 3, two kicks playing simultaneously at any point, energy jumps > +1."
+}
