@@ -658,9 +658,11 @@ def render(script: MixScript, output_path: str, export_mp3: bool = False) -> str
             from_ms = bars_to_ms(action.from_bar or 0, ref_bpm)
             at_ms   = bars_to_ms(action.at_bar or 0,   ref_bpm)
 
-            # Guard: if Claude put from_bar=0 on a play that follows a fade_in, the play
-            # would double-sum the fade window. Clamp at_ms/from_ms to after the fade ends.
-            if tid in fade_in_end and at_ms < fade_in_end[tid]:
+            # Guard: clamp play to after the fade_in window. Catches both:
+            #   a) play.at_bar < fade_end (Claude placed it too early)
+            #   b) play.at_bar == fade_end with from_bar=0 (correct bar, wrong source offset)
+            # Use <= so the guard fires even when at_ms == fade_in_end (the common case).
+            if tid in fade_in_end and at_ms <= fade_in_end[tid]:
                 gap     = fade_in_end[tid] - at_ms
                 at_ms   = fade_in_end[tid]
                 from_ms = from_ms + gap

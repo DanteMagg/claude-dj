@@ -277,8 +277,12 @@ This is not optional. It is as mandatory as `bass_swap`.
 ### EXECUTOR BEHAVIOR
 
 - `play` / `fade_in` / `fade_out` / `eq` act on **per-track layers** summed at output.
-- **Every `fade_in` MUST be followed by a `play`** at `start_bar + duration_bars` with
-  `from_bar = fade_in.from_bar + duration_bars`. Without the `play`, T2 goes silent.
+- **Every `fade_in` MUST specify `from_bar` explicitly.** Never omit it or leave it 0 unless
+  the track genuinely starts from source bar 0. Use the zone data to find the first non-silent bar.
+- **Every `fade_in` MUST be followed by a `play`** at `at_bar = fade_in.start_bar + fade_in.duration_bars`
+  with `from_bar = fade_in.from_bar + fade_in.duration_bars` (exactly — no other value is correct).
+  Example: fade_in(start_bar=72, duration_bars=16, from_bar=8) → play(at_bar=88, from_bar=24).
+  If you set play.from_bar=0, the executor will hear bars 0–16 of T2 again — double-play of the intro.
 - `bass_swap` cuts T1's low band (<=200 Hz) to silence. **MANDATORY on every blend transition**.
   Required fields: `track` (outgoing), `at_bar` (multiple of 8), **`incoming_track`** (incoming track id).
   **`incoming_track` is required** — without it the bass stem overlay is skipped entirely.

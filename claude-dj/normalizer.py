@@ -19,6 +19,7 @@ def normalize(script: MixScript) -> MixScript:
     actions = _clamp_durations(actions)
     actions = _clamp_eq(actions)
     actions = _clamp_loops(actions)
+    actions = _fix_play_from_bar_after_fade_in(actions)
     actions = _inject_play_for_orphaned_fade_in(actions)
     actions = _inject_bass_swap_if_missing(actions)
     actions = _inject_fade_out_if_missing(actions, script.tracks)
@@ -116,6 +117,41 @@ def _find_all_transitions(
                     fi.track,   # incoming
                 ))
     return transitions
+
+
+def _fix_play_from_bar_after_fade_in(actions: list[MixAction]) -> list[MixAction]:
+    """
+    For every play that immediately follows a fade_in on the same track, enforce:
+        play.at_bar   == fade_in.start_bar + fade_in.duration_bars
+        play.from_bar == fade_in.from_bar  + fade_in.duration_bars
+
+    Claude frequently emits from_bar=0 on the play (causing the first duration_bars of
+    the track to play again), or places the play at the wrong at_bar. This pass corrects
+    both fields. 'Immediately follows' means the play is the earliest play at or after
+    the fade_in end bar for that track.
+    """
+    result = list(actions)
+    for fi in actions:
+        if fi.type != "fade_in":
+            continue
+        fade_end_bar    = (fi.start_bar or 0) + (fi.duration_bars or 0)
+        correct_from    = (fi.from_bar  or 0) + (fi.duration_bars or 0)
+        # Find the first play for this track at or after the fade end
+        following_plays = [
+            (i, a) for i, a in enumerate(result)
+            if a.type == "play" and a.track == fi.track and (a.at_bar or 0) >= fade_end_bar
+        ]
+        if not following_plays:
+            continue
+        idx, play = min(following_plays, key=lambda x: x[1].at_bar or 0)
+        needs_fix = (play.at_bar != fade_end_bar) or (play.from_bar != correct_from)
+        if needs_fix:
+            print(
+                f"[normalizer] corrected play for {fi.track}: "
+                f"at_bar {play.at_bar}→{fade_end_bar}, from_bar {play.from_bar}→{correct_from}"
+            )
+            result[idx] = dataclasses.replace(play, at_bar=fade_end_bar, from_bar=correct_from)
+    return result
 
 
 def _inject_play_for_orphaned_fade_in(actions: list[MixAction]) -> list[MixAction]:
