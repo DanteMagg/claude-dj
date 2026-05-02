@@ -5,8 +5,11 @@ Claude designs the *when*; this enforces the *how* stays in known-safe ranges.
 from __future__ import annotations
 
 import dataclasses
+import logging
 
 from schema import MixAction, MixScript
+
+logger = logging.getLogger("normalizer")
 
 DURATION_MIN = 4    # bars — absolute floor (safety clamp only)
 DURATION_MAX = 64   # bars — absolute ceiling
@@ -15,15 +18,36 @@ PHRASE = 8          # bar granularity for snapping and bass_swap injection
 
 
 def normalize(script: MixScript) -> MixScript:
+    before = list(script.actions)
+    logger.debug(
+        "normalize() called: %d actions, %d tracks",
+        len(before), len(script.tracks),
+    )
     actions = list(script.actions)
     actions = _clamp_durations(actions)
     actions = _clamp_eq(actions)
     actions = _clamp_loops(actions)
+    actions = _snap_bass_swap_bars(actions)
     actions = _fix_play_from_bar_after_fade_in(actions)
     actions = _inject_play_for_orphaned_fade_in(actions)
     actions = _inject_bass_swap_if_missing(actions)
     actions = _inject_fade_out_if_missing(actions, script.tracks)
     actions = _restore_incoming_eq(actions)
+
+    added   = [a for a in actions if a not in before]
+    removed = [a for a in before  if a not in actions]
+    if added or removed:
+        logger.debug(
+            "normalize() changes: +%d injected, -%d removed\n"
+            "  injected: %s\n"
+            "  removed:  %s",
+            len(added), len(removed),
+            [f"{a.type}({a.track})" for a in added],
+            [f"{a.type}({a.track})" for a in removed],
+        )
+    else:
+        logger.debug("normalize(): no structural changes (actions look clean)")
+
     return MixScript(
         mix_title=script.mix_title,
         reasoning=script.reasoning,
@@ -136,20 +160,24 @@ def _fix_play_from_bar_after_fade_in(actions: list[MixAction]) -> list[MixAction
             continue
         fade_end_bar    = (fi.start_bar or 0) + (fi.duration_bars or 0)
         correct_from    = (fi.from_bar  or 0) + (fi.duration_bars or 0)
-        # Find the first play for this track at or after the fade end
+        # Find the first play for this track at or after the fade START (not fade end) so we
+        # also catch plays that Claude placed at the pre-clamp fade end (which may now fall
+        # inside the window after normalizer clamped duration_bars up to 16).
         following_plays = [
             (i, a) for i, a in enumerate(result)
-            if a.type == "play" and a.track == fi.track and (a.at_bar or 0) >= fade_end_bar
+            if a.type == "play" and a.track == fi.track and (a.at_bar or 0) >= (fi.start_bar or 0)
         ]
         if not following_plays:
             continue
         idx, play = min(following_plays, key=lambda x: x[1].at_bar or 0)
         needs_fix = (play.at_bar != fade_end_bar) or (play.from_bar != correct_from)
         if needs_fix:
-            print(
-                f"[normalizer] corrected play for {fi.track}: "
+            msg = (
+                f"corrected play for {fi.track}: "
                 f"at_bar {play.at_bar}→{fade_end_bar}, from_bar {play.from_bar}→{correct_from}"
             )
+            logger.debug("NORMALIZER FIX: %s", msg)
+            print(f"[normalizer] {msg}")
             result[idx] = dataclasses.replace(play, at_bar=fade_end_bar, from_bar=correct_from)
     return result
 
@@ -173,10 +201,12 @@ def _inject_play_for_orphaned_fade_in(actions: list[MixAction]) -> list[MixActio
             injected.append(
                 MixAction(type="play", track=fi.track, at_bar=fade_end_bar, from_bar=from_bar)
             )
-            print(
-                f"[normalizer] injected implied play for {fi.track} at bar {fade_end_bar} "
+            msg = (
+                f"injected implied play for {fi.track} at bar {fade_end_bar} "
                 f"(from_bar={from_bar}) — no play followed its fade_in"
             )
+            logger.debug("NORMALIZER INJECT: %s", msg)
+            print(f"[normalizer] {msg}")
     if not injected:
         return actions
     return sorted(actions + injected, key=_action_sort_key)
@@ -218,10 +248,12 @@ def _inject_fade_out_if_missing(
             start_bar=fade_start,
             duration_bars=16,
         ))
-        print(
-            f"[normalizer] auto-injected fade_out for {tid} at bar {fade_start} "
+        msg = (
+            f"auto-injected fade_out for {tid} at bar {fade_start} "
             f"(anchored on {anchor.type}@{anchor_bar}) — was missing"
         )
+        logger.debug("NORMALIZER INJECT: %s", msg)
+        print(f"[normalizer] {msg}")
 
     if not injected:
         return actions
@@ -266,8 +298,8 @@ def _restore_incoming_eq(actions: list[MixAction]) -> list[MixAction]:
             continue
         fo_start = fo.start_bar or 0
         eq_bar   = a.bar or 0
-        if eq_bar > fo_start:
-            # EQ fires inside/after the fade_out — nothing to restore (track is fading out)
+        if eq_bar >= fo_start:
+            # EQ fires at or after the fade_out start — part of the fade, no restore needed
             pass
         else:
             # EQ fires before the fade_out starts — it will color T1's active play window.
@@ -308,7 +340,9 @@ def _restore_incoming_eq(actions: list[MixAction]) -> list[MixAction]:
                 type="eq", track=tid, bar=restore_bar,
                 low=1.0, mid=1.0, high=1.0,
             ))
-            print(f"[normalizer] restored mid/high EQ for outgoing {tid} at bar {restore_bar} (fade_out start)")
+            msg = f"restored mid/high EQ for outgoing {tid} at bar {restore_bar} (fade_out start)"
+            logger.debug("NORMALIZER FIX: %s", msg)
+            print(f"[normalizer] {msg}")
 
     for a in actions:
         if a.type != "eq" or a.track not in continuing_tids:
@@ -333,14 +367,31 @@ def _restore_incoming_eq(actions: list[MixAction]) -> list[MixAction]:
                 bar=restore_bar,
                 low=1.0, mid=1.0, high=1.0,
             ))
-            print(
-                f"[normalizer] restored EQ for continuing {a.track} at bar {restore_bar} "
+            msg = (
+                f"restored EQ for continuing {a.track} at bar {restore_bar} "
                 f"(had low={a.low} mid={a.mid} high={a.high} from bar {a.bar})"
             )
+            logger.debug("NORMALIZER FIX: %s", msg)
+            print(f"[normalizer] {msg}")
 
     if not injected:
         return actions
     return sorted(actions + injected, key=_action_sort_key)
+
+
+def _snap_bass_swap_bars(actions: list[MixAction]) -> list[MixAction]:
+    """Snap every bass_swap.at_bar to the nearest multiple of 8."""
+    result = []
+    for a in actions:
+        if a.type == "bass_swap" and a.at_bar is not None:
+            snapped = round(a.at_bar / PHRASE) * PHRASE
+            if snapped != a.at_bar:
+                msg = f"snapped bass_swap({a.track}) at_bar {a.at_bar}→{snapped} (phrase alignment)"
+                logger.debug("NORMALIZER FIX: %s", msg)
+                print(f"[normalizer] {msg}")
+                a = dataclasses.replace(a, at_bar=snapped)
+        result.append(a)
+    return result
 
 
 def _inject_bass_swap_if_missing(actions: list[MixAction]) -> list[MixAction]:

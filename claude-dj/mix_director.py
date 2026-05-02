@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
+import textwrap
+import time
 from datetime import date
 from pathlib import Path
 from typing import Optional
@@ -12,6 +15,18 @@ from schema import MixAction, MixScript, MixTrackRef, TrackAnalysis
 
 _SKILL_PATH    = Path(__file__).parent / "dj_skill.md"
 _EXAMPLES_DIR  = Path(__file__).parent / "examples_bank"
+
+logger = logging.getLogger("mix_director")
+
+
+def _hr(char: str = "─", width: int = 72) -> str:
+    return char * width
+
+
+def _truncate(s: str, n: int = 600) -> str:
+    if len(s) <= n:
+        return s
+    return s[:n] + f"\n… [{len(s)-n} chars omitted]"
 
 # ---------------------------------------------------------------------------
 # Examples retrieval (deterministic RAG)
@@ -142,9 +157,38 @@ def retrieve_examples(
     """Return top-k most relevant examples for this transition."""
     all_ex = _load_all_examples()
     if not all_ex:
+        logger.debug("RAG: examples_bank empty — no retrieved examples")
         return []
-    scored = sorted(all_ex, key=lambda e: _score_example(e, t1, t2, window))
-    return scored[:k]
+    scored_pairs = sorted(
+        [(e, _score_example(e, t1, t2, window)) for e in all_ex],
+        key=lambda x: x[1],
+    )
+    logger.debug(
+        "RAG scores (%d examples) for %s→%s:\n%s",
+        len(all_ex),
+        getattr(t1.key, "camelot", "?"),
+        getattr(t2.key, "camelot", "?"),
+        "\n".join(
+            f"  score={sc:+.3f}  {e['meta'].get('t1_artist','?')!r}→"
+            f"{e['meta'].get('t2_artist','?')!r}  "
+            f"({e['meta'].get('t1_camelot','?')}→{e['meta'].get('t2_camelot','?')}  "
+            f"{e['meta'].get('technique','?')} exit={e['meta'].get('exit_section','?')})"
+            for e, sc in scored_pairs[:8]
+        ),
+    )
+    top = [e for e, _ in scored_pairs[:k]]
+    if top:
+        logger.debug(
+            "RAG selected top-%d:\n%s",
+            k,
+            "\n".join(
+                f"  [{i+1}] {e['meta'].get('t1_artist','?')} → "
+                f"{e['meta'].get('t2_artist','?')}  "
+                f"{e['meta'].get('t1_camelot','?')}→{e['meta'].get('t2_camelot','?')}"
+                for i, e in enumerate(top)
+            ),
+        )
+    return top
 
 
 def _format_examples_block(examples: list[dict]) -> str:
@@ -281,7 +325,9 @@ This is not optional. It is as mandatory as `bass_swap`.
   the track genuinely starts from source bar 0. Use the zone data to find the first non-silent bar.
 - **Every `fade_in` MUST be followed by a `play`** at `at_bar = fade_in.start_bar + fade_in.duration_bars`
   with `from_bar = fade_in.from_bar + fade_in.duration_bars` (exactly — no other value is correct).
-  Example: fade_in(start_bar=72, duration_bars=16, from_bar=8) → play(at_bar=88, from_bar=24).
+  Examples: fade_in(start_bar=72, duration_bars=16, from_bar=8) → play(at_bar=88, from_bar=24).
+           fade_in(start_bar=64, duration_bars=16, from_bar=16) → play(at_bar=80, from_bar=32).
+  Double-check: play.from_bar − fade_in.from_bar must equal exactly fade_in.duration_bars.
   If you set play.from_bar=0, the executor will hear bars 0–16 of T2 again — double-play of the intro.
 - `bass_swap` cuts T1's low band (<=200 Hz) to silence. **MANDATORY on every blend transition**.
   Required fields: `track` (outgoing), `at_bar` (multiple of 8), **`incoming_track`** (incoming track id).
@@ -518,6 +564,21 @@ def select_transition_window(
     model can tell whether the suggested cue point is actually low-energy or still
     kicking.  Falls back to cue-point defaults on any error.
     """
+    logger.debug(
+        "%s\nPHASE 1: select_transition_window\n"
+        "  T1: %r  bpm=%.1f  key=%s  bars=%d\n"
+        "  T2: %r  bpm=%.1f  key=%s  bars=%d",
+        _hr(),
+        getattr(t1, "title", t1.file),
+        t1.bpm,
+        getattr(t1.key, "camelot", "?"),
+        t1.bar_grid.n_bars,
+        getattr(t2, "title", t2.file),
+        t2.bpm,
+        getattr(t2.key, "camelot", "?"),
+        t2.bar_grid.n_bars,
+    )
+
     summaries = (
         _format_track_summary(t1, "T1") + "\n\n" + _format_track_summary(t2, "T2")
     )
@@ -531,8 +592,14 @@ def select_transition_window(
         or max(0, t1.bar_grid.n_bars - 32)
     )
 
+    logger.debug(
+        "T1 cues: %s  →  probe_bar=%d\nT2 cues: %s",
+        cue_t1, probe_bar, cue_t2,
+    )
+
     # Quick zone peek: 4 bars lead-in + 8 bars past the suggested exit (~12 bars total)
     peek_section = ""
+    peek_rows: list[dict] = []
     try:
         from analyze import analyze_transition_zone as _peek_zone  # local import avoids circular
         peek_rows = _peek_zone(
@@ -540,10 +607,22 @@ def select_transition_window(
             max(0, probe_bar - 4), 12,
         )
         peek_section = _format_peek_rows(peek_rows, probe_bar)
+        logger.debug(
+            "Zone peek around T1 exit (probe_bar=%d):\n%s",
+            probe_bar,
+            "\n".join(
+                f"  b{r['bar']:3d}: d={r['drums']:.2f} h={r['harmonic']:.2f} "
+                f"r={r['rms']:.2f} onsets={r['onsets']}"
+                + (" ← probe" if r["bar"] == probe_bar else "")
+                for r in peek_rows
+            ),
+        )
     except Exception as exc:
+        logger.warning("select_window peek failed (%s) — skipping zone hint", exc)
         print(f"[mix_director] select_window peek failed ({exc}) — skipping zone hint")
 
     prompt = _WINDOW_PROMPT_TEMPLATE.format(summaries=summaries, peek_section=peek_section)
+    logger.debug("Phase 1 prompt:\n%s", _truncate(prompt, 800))
 
     default = {
         "t1_exit_bar":  probe_bar,
@@ -554,22 +633,33 @@ def select_transition_window(
 
     try:
         client = anthropic.Anthropic()
+        t0 = time.monotonic()
         response = client.messages.create(
             model=model,
             max_tokens=128,
             system=[{"type": "text", "text": _WINDOW_SYSTEM, "cache_control": {"type": "ephemeral"}}],
             messages=[{"role": "user", "content": prompt}],
         )
+        latency_ms = (time.monotonic() - t0) * 1000
         usage = response.usage
+        logger.debug(
+            "Phase 1 API response (%.0fms)  tokens in=%d cache_read=%d out=%d",
+            latency_ms,
+            usage.input_tokens,
+            getattr(usage, "cache_read_input_tokens", 0),
+            usage.output_tokens,
+        )
         print(
             f"[mix_director] select_window tokens -- "
             f"in:{usage.input_tokens} (cache_read:{getattr(usage, 'cache_read_input_tokens', 0)}) "
             f"out:{usage.output_tokens}"
         )
         raw = response.content[0].text.strip()
+        logger.debug("Phase 1 raw response: %s", raw)
         if raw.startswith("```"):
             raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
         window = json.loads(raw)
+        raw_window = dict(window)
         # Validate / clamp
         window.setdefault("t1_exit_bar",  default["t1_exit_bar"])
         window.setdefault("t2_enter_bar", default["t2_enter_bar"])
@@ -581,8 +671,26 @@ def select_transition_window(
         max_exit = ((t1.bar_grid.n_bars - window["window_bars"]) // 8) * 8
         window["t1_exit_bar"] = min(window["t1_exit_bar"], max(0, max_exit))
         window["t2_enter_bar"] = max(0, int(window["t2_enter_bar"]))
+        clamp_notes = []
+        if raw_window.get("t1_exit_bar") != window["t1_exit_bar"]:
+            clamp_notes.append(
+                f"t1_exit_bar {raw_window.get('t1_exit_bar')}→{window['t1_exit_bar']} (clamped)"
+            )
+        if raw_window.get("window_bars") != window["window_bars"]:
+            clamp_notes.append(
+                f"window_bars {raw_window.get('window_bars')}→{window['window_bars']} (clamped)"
+            )
+        logger.debug(
+            "Phase 1 window: t1_exit=%d  t2_enter=%d  window=%d  style=%s%s",
+            window["t1_exit_bar"],
+            window["t2_enter_bar"],
+            window["window_bars"],
+            window["style"],
+            ("  CLAMPS: " + ", ".join(clamp_notes)) if clamp_notes else "",
+        )
         return window
     except Exception as exc:
+        logger.warning("Phase 1 failed (%s), using cue defaults: %s", exc, default)
         print(f"[mix_director] select_window failed ({exc}), using cue defaults")
         return default
 
@@ -682,7 +790,7 @@ Annotations: [DROP] [BREAKDOWN] [SILENT] [KICK-IN] [BASS-IN] [KICK-OUT] [BASS-OU
 ### ZONE → ACTION MAPPING
 
 Use the zone data to place actions precisely:
-- `bass_swap.at_bar` = T1 bar where `d+h` is minimum (lowest combined drum+harmonic energy); always include `incoming_track` = T2's id
+- `bass_swap.at_bar` = nearest **multiple of 8** to the T1 bar where `d+h` is minimum; always include `incoming_track` = T2's id. If the minimum-energy bar is e.g. bar 71, use bar 72 (round to nearest 8). Never use an odd bar number.
 - `fade_in.start_bar` = T2's first bar where drums are present (d > 0.25) but harmonic is
   not yet (h < 0.20) — enter on the drum hit, before the bass kicks in
 - `fade_out.start_bar` = T1's first [KICK-OUT] or [BREAKDOWN] bar (falling drums edge)
@@ -706,8 +814,11 @@ def _compute_zone_hints(t1_zone: list[dict], t2_zone: list[dict]) -> str:
     if t1_zone:
         # Preferred bass_swap bar: minimum drums + harmonic (least energy to carry over)
         best_swap = min(t1_zone, key=lambda r: r["drums"] + r["harmonic"])
+        raw_bar   = best_swap["bar"]
+        snap_bar  = round(raw_bar / 8) * 8  # snap to nearest phrase boundary
+        snap_note = f" (raw b{raw_bar} snapped to multiple of 8)" if snap_bar != raw_bar else ""
         hints.append(
-            f"T1 preferred bass_swap bar: b{best_swap['bar']} "
+            f"T1 preferred bass_swap bar: b{snap_bar}{snap_note} "
             f"(d+h={best_swap['drums'] + best_swap['harmonic']:.2f}, lowest in exit zone)"
         )
         # High-energy bars to avoid as transition entry points
@@ -815,8 +926,10 @@ def _format_plan_prompt(
         "You are planning a 2-track transition.\n\n"
         f"{coord_note}"
         f"{summaries}\n\n"
-        f"Suggested window: T1 exits ~bar {window['t1_exit_bar']}, "
-        f"T2 enters ~bar {window['t2_enter_bar']}, overlap ~{window['window_bars']} bars, "
+        f"Required window (from Phase 1 analysis): "
+        f"T1 exits bar {window['t1_exit_bar']}, "
+        f"T2 enters bar {window['t2_enter_bar']}, "
+        f"overlap = EXACTLY {window['window_bars']} bars (set fade_in.duration_bars = fade_out.duration_bars = {window['window_bars']}), "
         f"style={window['style']}\n\n"
         f"{vocal_warning}"
         f"{zone_hints}"
@@ -839,18 +952,71 @@ def plan_transition(
     Phase 2: full move planning with per-bar zone data injected into the prompt.
     Uses the same output schema as direct_mix.
     """
+    camelot_dist = _camelot_distance(
+        getattr(t1.key, "camelot", ""),
+        getattr(t2.key, "camelot", ""),
+    )
+    logger.debug(
+        "%s\nPHASE 2: plan_transition\n"
+        "  Window: t1_exit=%d  t2_enter=%d  overlap=%d  style=%s\n"
+        "  Key move: %s→%s (dist=%d)  BPM: %.1f→%.1f (Δ%.1f)\n"
+        "  T1 zone: %d bars (%d–%d)\n"
+        "  T2 zone: %d bars (%d–%d)",
+        _hr(),
+        window["t1_exit_bar"], window["t2_enter_bar"], window["window_bars"], window["style"],
+        getattr(t1.key, "camelot", "?"), getattr(t2.key, "camelot", "?"), camelot_dist,
+        t1.bpm, t2.bpm, abs(t1.bpm - t2.bpm),
+        len(t1_zone),
+        t1_zone[0]["bar"] if t1_zone else 0,
+        t1_zone[-1]["bar"] if t1_zone else 0,
+        len(t2_zone),
+        t2_zone[0]["bar"] if t2_zone else 0,
+        t2_zone[-1]["bar"] if t2_zone else 0,
+    )
+
+    if t1_zone:
+        logger.debug(
+            "T1 exit zone:\n%s",
+            "\n".join(
+                f"  b{r['bar']:3d}: d={r['drums']:.2f} h={r['harmonic']:.2f} "
+                f"r={r['rms']:.2f} onsets={r['onsets']}"
+                for r in t1_zone
+            ),
+        )
+    if t2_zone:
+        logger.debug(
+            "T2 entry zone:\n%s",
+            "\n".join(
+                f"  b{r['bar']:3d}: d={r['drums']:.2f} h={r['harmonic']:.2f} "
+                f"r={r['rms']:.2f} onsets={r['onsets']}"
+                for r in t2_zone
+            ),
+        )
+
     client = anthropic.Anthropic()
     system_text = _load_system_prompt() + _PLAN_TASK_SUFFIX
     prompt = _format_plan_prompt(t1, t2, t1_zone, t2_zone, window)
+    logger.debug("Phase 2 prompt (head/tail):\n%s", _truncate(prompt, 1200))
 
+    t0 = time.monotonic()
     response = client.messages.create(
         model=model,
         max_tokens=4096,
         system=[{"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}],
         messages=[{"role": "user", "content": prompt}],
     )
+    latency_ms = (time.monotonic() - t0) * 1000
 
     usage = response.usage
+    logger.debug(
+        "Phase 2 API response (%.0fms)  tokens in=%d cache_read=%d cache_write=%d out=%d  stop=%s",
+        latency_ms,
+        usage.input_tokens,
+        getattr(usage, "cache_read_input_tokens", 0),
+        getattr(usage, "cache_creation_input_tokens", 0),
+        usage.output_tokens,
+        response.stop_reason,
+    )
     print(
         f"[mix_director] plan_transition tokens -- "
         f"in:{usage.input_tokens} (cache_read:{getattr(usage, 'cache_read_input_tokens', 0)} "
@@ -859,10 +1025,12 @@ def plan_transition(
     )
 
     raw = response.content[0].text.strip()
+    logger.debug("Phase 2 raw response:\n%s", _truncate(raw, 2000))
     if raw.startswith("```"):
         raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
 
     if response.stop_reason == "max_tokens":
+        logger.warning("Phase 2 response truncated (max_tokens) — continuing")
         print("[mix_director] plan_transition truncated -- continuing")
         followup = client.messages.create(
             model=model,
@@ -879,7 +1047,20 @@ def plan_transition(
             raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
 
     data = json.loads(raw)
-    return _dict_to_mix_script(data, [t1, t2])
+
+    # Log reasoning before converting
+    reasoning = data.get("reasoning", "")
+    logger.debug("Claude reasoning:\n  %s", reasoning.replace("\n", "\n  "))
+
+    actions = data.get("actions", [])
+    logger.debug(
+        "Claude actions (%d):\n%s",
+        len(actions),
+        "\n".join(f"  {json.dumps(a, separators=(',', ':'))}" for a in actions),
+    )
+
+    script = _dict_to_mix_script(data, [t1, t2])
+    return script
 
 
 def direct_mix(analyses: list[TrackAnalysis], model: str, min_minutes: Optional[int] = None) -> MixScript:
