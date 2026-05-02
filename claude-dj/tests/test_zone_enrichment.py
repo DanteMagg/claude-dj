@@ -83,3 +83,45 @@ def test_vocal_regions_active_to_end():
     rms = [0.0, 0.5, 0.5]
     regions = _build_vocal_regions(rms)
     assert regions == [(1, 2)]
+
+
+# ── analyze_transition_zone row schema ──────────────────────────────────────
+
+def test_zone_row_has_vocals_key(tmp_path):
+    """Zone rows always have a 'vocals' key (0.0 when no stem available)."""
+    import numpy as np
+    import soundfile as sf
+    from analyze import analyze_transition_zone
+
+    # 10-second sine wave at 128 BPM → roughly 5 bars
+    sr = 22050
+    duration = 10.0
+    t = np.linspace(0, duration, int(sr * duration))
+    audio = (0.3 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+    audio_path = str(tmp_path / "test.wav")
+    sf.write(audio_path, audio, sr)
+
+    rows = analyze_transition_zone(audio_path, bpm=128.0, first_downbeat_s=0.0, start_bar=0, n_bars=4)
+    assert len(rows) > 0
+    for row in rows:
+        assert "vocals" in row
+        assert row["vocals"] == 0.0  # no stems cached → fallback
+        assert "tags" in row
+        assert isinstance(row["tags"], list)
+
+
+def test_zone_row_has_all_original_keys(tmp_path):
+    import numpy as np
+    import soundfile as sf
+    from analyze import analyze_transition_zone
+
+    sr = 22050
+    t = np.linspace(0, 10.0, int(sr * 10.0))
+    audio = (0.3 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+    audio_path = str(tmp_path / "test.wav")
+    sf.write(audio_path, audio, sr)
+
+    rows = analyze_transition_zone(audio_path, bpm=128.0, first_downbeat_s=0.0, start_bar=0, n_bars=2)
+    for row in rows:
+        for key in ("bar", "drums", "harmonic", "rms", "brightness", "onsets"):
+            assert key in row

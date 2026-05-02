@@ -665,6 +665,16 @@ def analyze_transition_zone(
     other_stem_path = cache_dir / "stems" / "other.wav"
     has_stems = drums_stem_path.exists() and bass_stem_path.exists()
 
+    # ── Vocal stem (optional — added alongside drums/harmonic) ───────────────
+    vocals_stem_path = cache_dir / "stems" / "vocals.wav"
+    has_vocals = vocals_stem_path.exists()
+    vocals_y: Optional[np.ndarray] = None
+    if has_vocals:
+        vocals_y, _ = librosa.load(
+            str(vocals_stem_path), sr=ANALYSIS_SR, mono=True,
+            offset=max(0.0, zone_start_s), duration=zone_dur_s,
+        )
+
     if has_stems:
         drums_y, _ = librosa.load(
             str(drums_stem_path), sr=ANALYSIS_SR, mono=True,
@@ -687,9 +697,13 @@ def analyze_transition_zone(
             harmonic_y = bass_y[:harm_len]
         drums_y = drums_y[:harm_len]
         y_full  = y_full[:harm_len]
+        if vocals_y is not None and len(vocals_y) > len(y_full):
+            vocals_y = vocals_y[:len(y_full)]
     else:
         # HPSS: fast enough on a 48-bar slice (~0.5s at 22 kHz)
         harmonic_y, drums_y = librosa.effects.hpss(y_full, margin=3.0)
+
+    voc_peak = float(np.sqrt(np.mean(vocals_y ** 2))) + 1e-9 if vocals_y is not None else 1.0
 
     # Normalise against the zone peak so values are relative (0–1)
     mix_peak  = float(np.sqrt(np.mean(y_full  ** 2))) + 1e-9
@@ -736,6 +750,19 @@ def analyze_transition_zone(
         else:
             onsets = 0
 
+        # Vocal RMS — normalised to vocal zone peak
+        if vocals_y is not None and s < len(vocals_y):
+            voc_slice = vocals_y[s:e]
+            voc_rms = float(np.sqrt(np.mean(voc_slice ** 2))) / voc_peak if len(voc_slice) > 0 else 0.0
+        else:
+            voc_rms = 0.0
+
+        tags = _assign_tags(
+            drums=round(min(1.0, drum_rms * 1.5), 2),
+            harmonic=round(min(1.0, harm_rms * 1.5), 2),
+            vocals=round(min(1.0, voc_rms), 2),
+        )
+
         results.append({
             "bar":        bar_abs,
             "drums":      round(min(1.0, drum_rms * 1.5), 2),  # slight boost for legibility
@@ -743,6 +770,8 @@ def analyze_transition_zone(
             "brightness": round(brightness, 2),
             "onsets":     onsets,
             "rms":        round(min(1.0, mix_rms), 2),
+            "vocals":     round(min(1.0, voc_rms), 2),
+            "tags":       tags,
         })
 
     return results
