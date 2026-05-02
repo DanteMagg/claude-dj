@@ -38,7 +38,8 @@ def cli():
 @click.option("--no-stems", is_flag=True, help="Skip Demucs (faster, disables stem fades)")
 @click.option("--min-minutes", default=None, type=int, help="Target minimum set length in minutes (hint to Claude)")
 @click.option("--dry-run", is_flag=True, help="Print transition table without rendering audio")
-def mix(tracks_dir, output, analyze_only, script, model, mp3, no_stems, min_minutes, dry_run):
+@click.option("--concept", default=None, help="Set archetype concept slug (e.g. sunrise, peak_time)")
+def mix(tracks_dir, output, analyze_only, script, model, mp3, no_stems, min_minutes, dry_run, concept):
     """Analyze TRACKS_DIR, ask Claude to direct the mix, render audio."""
     sys.path.insert(0, str(Path(__file__).parent))
 
@@ -70,8 +71,18 @@ def mix(tracks_dir, output, analyze_only, script, model, mp3, no_stems, min_minu
             return
 
         click.echo("\nAsking Claude to direct the mix…")
-        from mix_director import direct_mix
-        mix_script = direct_mix(analyses, model, min_minutes=min_minutes)
+        from mix_director import direct_mix, load_concept
+        active_concept = None
+        if concept:
+            active_concept = load_concept(concept)
+            if active_concept is None:
+                raise click.UsageError(
+                    f"Unknown concept {concept!r}. "
+                    f"Available: warmup, sunrise, hypnotic, peak_time, tension_build, "
+                    f"journey, cool_down, afterhours, build, rollercoaster"
+                )
+            click.echo(f"Concept: {active_concept['display_name']}")
+        mix_script = direct_mix(analyses, model, min_minutes=min_minutes, concept=active_concept)
         click.echo(f"\nReasoning: {mix_script.reasoning[:300]}{'…' if len(mix_script.reasoning) > 300 else ''}")
 
         # save script
