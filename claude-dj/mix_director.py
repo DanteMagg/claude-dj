@@ -15,8 +15,22 @@ from schema import MixAction, MixScript, MixTrackRef, TrackAnalysis
 
 _SKILL_PATH    = Path(__file__).parent / "dj_skill.md"
 _EXAMPLES_DIR  = Path(__file__).parent / "examples_bank"
+_CONCEPT_DIR   = Path(__file__).parent / "concept_bank"
 
 logger = logging.getLogger("mix_director")
+
+
+def load_concept(slug: str) -> dict | None:
+    """Load a concept from concept_bank/<slug>.json. Returns None if not found."""
+    if not slug:
+        return None
+    path = _CONCEPT_DIR / f"{slug}.json"
+    if not path.exists():
+        logger.debug("load_concept: no concept file for slug %r", slug)
+        return None
+    data = json.loads(path.read_text())
+    logger.debug("load_concept: loaded %r (%s)", slug, data.get("display_name", "?"))
+    return data
 
 
 def _hr(char: str = "─", width: int = 72) -> str:
@@ -73,6 +87,7 @@ def _score_example(
     t1: TrackAnalysis,
     t2: TrackAnalysis,
     window: dict,
+    concept: dict | None = None,
 ) -> float:
     """
     Lower = more similar. Weighted sum:
@@ -145,6 +160,9 @@ def _score_example(
     elif window_style == "drop_swap" and ex_exit == "drop":
         score -= 0.1
 
+    if concept and ex.get("id") in concept.get("example_ids", []):
+        score -= 0.8
+
     return score
 
 
@@ -153,6 +171,7 @@ def retrieve_examples(
     t2: TrackAnalysis,
     window: dict,
     k: int = 2,
+    concept: dict | None = None,
 ) -> list[dict]:
     """Return top-k most relevant examples for this transition."""
     all_ex = _load_all_examples()
@@ -160,7 +179,7 @@ def retrieve_examples(
         logger.debug("RAG: examples_bank empty — no retrieved examples")
         return []
     scored_pairs = sorted(
-        [(e, _score_example(e, t1, t2, window)) for e in all_ex],
+        [(e, _score_example(e, t1, t2, window, concept=concept)) for e in all_ex],
         key=lambda x: x[1],
     )
     logger.debug(
@@ -443,6 +462,7 @@ def select_transition_window(
     t1: TrackAnalysis,
     t2: TrackAnalysis,
     model: str,
+    concept: dict | None = None,
 ) -> dict:
     """
     Phase 1: lightweight API call that picks where the transition should happen.
@@ -508,6 +528,17 @@ def select_transition_window(
         print(f"[mix_director] select_window peek failed ({exc}) — skipping zone hint")
 
     prompt = _WINDOW_PROMPT_TEMPLATE.format(summaries=summaries, peek_section=peek_section)
+    if concept:
+        d = concept.get("directives", {})
+        avoid = ", ".join(d.get("avoid_technique", []))
+        concept_hint = (
+            f"ACTIVE CONCEPT: {concept['display_name']}\n"
+            f"Prefer: window_bars={d.get('preferred_overlap_bars', 16)}, "
+            f"style={d.get('preferred_technique', 'blend')}\n"
+            + (f"Avoid: {avoid}\n" if avoid else "")
+            + "\n"
+        )
+        prompt = concept_hint + prompt
     logger.debug("Phase 1 prompt:\n%s", _truncate(prompt, 800))
 
     default = {
@@ -791,6 +822,7 @@ def _format_plan_prompt(
     t1_zone: list[dict],
     t2_zone: list[dict],
     window: dict,
+    concept: dict | None = None,
 ) -> str:
     summaries = (
         _format_track_summary(t1, "T1") + "\n\n" + _format_track_summary(t2, "T2")
@@ -800,8 +832,21 @@ def _format_plan_prompt(
 
     zone_hints      = _compute_zone_hints(t1_zone, t2_zone)
     vocal_warning   = _vocal_warning(t1, t2, window)
-    retrieved_exs   = retrieve_examples(t1, t2, window, k=3)
+    retrieved_exs   = retrieve_examples(t1, t2, window, k=3, concept=concept)
     examples_block  = _format_examples_block(retrieved_exs)
+
+    concept_block = ""
+    if concept:
+        d = concept.get("directives", {})
+        concept_block = (
+            f"{'=' * 60}\n"
+            f"ACTIVE CONCEPT: {concept['display_name'].upper()}\n\n"
+            f"{concept['prompt_injection']}\n\n"
+            f"DIRECTIVES SUMMARY: overlap={d.get('preferred_overlap_bars')} bars | "
+            f"technique={d.get('preferred_technique')} | "
+            f"bass_swap={d.get('bass_swap_placement')}\n"
+            f"{'=' * 60}\n\n"
+        )
 
     coord_note = (
         "COORDINATE SYSTEM: All bar values in your output must be LOCAL to each track's "
@@ -809,7 +854,8 @@ def _format_plan_prompt(
         "Do NOT use global mix bar numbers. The zone data bars above are already in track-local space.\n\n"
     )
     return (
-        "You are planning a 2-track transition.\n\n"
+        concept_block
+        + "You are planning a 2-track transition.\n\n"
         f"{coord_note}"
         f"{summaries}\n\n"
         f"Required window (from Phase 1 analysis): "
@@ -833,6 +879,7 @@ def plan_transition(
     t2_zone: list[dict],
     window: dict,
     model: str,
+    concept: dict | None = None,
 ) -> MixScript:
     """
     Phase 2: full move planning with per-bar zone data injected into the prompt.
@@ -881,7 +928,7 @@ def plan_transition(
 
     client = anthropic.Anthropic()
     system_text = _load_system_prompt() + _PLAN_TASK_SUFFIX
-    prompt = _format_plan_prompt(t1, t2, t1_zone, t2_zone, window)
+    prompt = _format_plan_prompt(t1, t2, t1_zone, t2_zone, window, concept=concept)
     logger.debug("Phase 2 prompt (head/tail):\n%s", _truncate(prompt, 1200))
 
     t0 = time.monotonic()
@@ -949,9 +996,21 @@ def plan_transition(
     return script
 
 
-def direct_mix(analyses: list[TrackAnalysis], model: str, min_minutes: Optional[int] = None) -> MixScript:
+def direct_mix(analyses: list[TrackAnalysis], model: str, min_minutes: Optional[int] = None, concept: dict | None = None) -> MixScript:
     client = anthropic.Anthropic()
     prompt = build_prompt(analyses, min_minutes)
+    if concept:
+        d = concept.get("directives", {})
+        concept_block = (
+            f"{'=' * 60}\n"
+            f"ACTIVE CONCEPT: {concept['display_name'].upper()}\n\n"
+            f"{concept['prompt_injection']}\n\n"
+            f"DIRECTIVES SUMMARY: overlap={d.get('preferred_overlap_bars')} bars | "
+            f"technique={d.get('preferred_technique')} | "
+            f"bass_swap={d.get('bass_swap_placement')}\n"
+            f"{'=' * 60}\n\n"
+        )
+        prompt = concept_block + prompt
 
     # System prompt is large and static -- cache it to avoid re-tokenizing on every mix call.
     # max_tokens: 2-track transition JSON is ~800-1200 tokens; 4096 gives headroom.
