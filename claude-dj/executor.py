@@ -495,6 +495,16 @@ def render_chunk(
                 cursor.fade_out_start_ms, cursor.fade_out_end_ms,
                 1.0, 0.0,
             )
+            # Hard-silence any tail of this chunk that falls after fade_out_end_ms.
+            # The gain ramp reaches 0 exactly at fade_out_end_ms, but the chunk may
+            # extend beyond that — without this the gain stays at its last interpolated
+            # value rather than being truly silent.
+            tail_start = cursor.fade_out_end_ms - start_ms
+            if tail_start < chunk_ms:
+                silent_tail = AudioSegment.silent(
+                    duration=chunk_ms - tail_start, frame_rate=target_rate
+                )
+                track_chunk = track_chunk[:tail_start] + silent_tail
 
         # ── Bass cut ─────────────────────────────────────────────────────────
         if cursor.bass_cut:
@@ -754,9 +764,20 @@ def render(script: MixScript, output_path: str, export_mp3: bool = False) -> str
                         else:
                             fi_from_ms = bars_to_ms(fi_action.from_bar or 0, ref_bpm)
                             fi_at_ms   = bars_to_ms(fi_action.start_bar or 0, ref_bpm)
-                            stem_offset = max(0, fi_from_ms + (swap_ms - fi_at_ms))
+                            # Source position at swap_ms: extrapolate backwards from fade_in anchor.
+                            # fi_from_ms is the source offset when fade_in begins at fi_at_ms,
+                            # so at mix time swap_ms the source position is:
+                            #   fi_from_ms + (swap_ms - fi_at_ms)
+                            # When swap_ms < fi_at_ms this is negative — the swap fires before
+                            # the track's source audio is in range. Skip the bass restore in that
+                            # case rather than clamping to 0 (wrong notes from track beginning).
+                            raw_offset = fi_from_ms + (swap_ms - fi_at_ms)
+                            if raw_offset < 0:
+                                bass_stem = None  # pre-source swap — no restore possible
+                            else:
+                                stem_offset = raw_offset
                     if bass_stem is not None:
-                        stem_offset = max(0, stem_offset)
+                        stem_offset = max(0, stem_offset)  # safety clamp only
                         bass_tail = bass_stem[stem_offset:]
                         # Find next play action for in_tid after swap_ms
                         next_play_ms: Optional[int] = None
@@ -832,6 +853,9 @@ def render(script: MixScript, output_path: str, export_mp3: bool = False) -> str
             mid  = action.mid  if action.mid  is not None else 1.0
             high = action.high if action.high is not None else 1.0
 
+            # Re-read layers[tid] here — a fade_out earlier in this loop may have
+            # already mutated it. Using a snapshot captured before the loop would
+            # apply EQ to pre-fade audio, not the actual current layer state.
             layer     = layers[tid]
             orig_seg  = layer[start_ms_eq:end_ms_eq]
             eq_seg    = apply_eq(orig_seg, low, mid, high)

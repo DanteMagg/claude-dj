@@ -194,36 +194,41 @@ def _inject_fade_out_if_missing(
 
 def _restore_incoming_eq(actions: list[MixAction]) -> list[MixAction]:
     """
-    EQ is now persistent (from bar → end of track). That's correct for the outgoing
-    track (T1), which is fading out and disappears. It's destructive for the incoming
-    track (T2), which continues playing after the blend: any bass/mid cut applied during
-    the overlap window would color T2 for the rest of the mix.
+    EQ is persistent (from bar → end of track). Correct for outgoing tracks (fading
+    out). Destructive for continuing tracks: any suppression during the overlap window
+    persists for the rest of the mix.
 
-    Fix: for every eq action on a track that has a fade_in (incoming) but no fade_out
-    (i.e. it continues past the transition), inject a restore eq(low=1.0, mid=1.0,
-    high=1.0) at the end of the transition window.
+    A "continuing" track is one that has a play or fade_in (it enters the mix) but no
+    fade_out (it doesn't exit). For every non-unity eq on such a track, inject a restore
+    eq(low=1.0, mid=1.0, high=1.0) at the end of the transition window.
+
+    The transition end is determined by:
+      - fade_in end (start_bar + duration_bars) if the track has a fade_in, or
+      - the play at_bar + PHRASE (one phrase after entry) if no fade_in.
     """
     incoming_tids = {
-        a.track for a in actions if a.type == "fade_in"
+        a.track for a in actions if a.type in ("fade_in", "play")
     }
     outgoing_tids = {
         a.track for a in actions if a.type == "fade_out"
     }
-    # Tracks that are incoming-only (not also exiting in this sub-script).
-    # These are the continuing tracks whose EQ must not persist.
     continuing_tids = incoming_tids - outgoing_tids
+
+    def _transition_end_bar(tid: str) -> int:
+        """Bar at which the blend window for this incoming track closes."""
+        fi = next((x for x in actions if x.type == "fade_in" and x.track == tid), None)
+        if fi is not None:
+            return (fi.start_bar or 0) + (fi.duration_bars or 0)
+        # No fade_in: find the earliest play for this track and use +PHRASE
+        plays = [x for x in actions if x.type == "play" and x.track == tid]
+        if plays:
+            earliest = min(plays, key=lambda x: x.at_bar or 0)
+            return (earliest.at_bar or 0) + PHRASE
+        return PHRASE  # fallback
 
     injected: list[MixAction] = []
     for a in actions:
         if a.type != "eq" or a.track not in continuing_tids:
-            continue
-        # This EQ is on a track that continues playing — find the transition end bar.
-        # Use the fade_in for that track to determine when the blend window closes.
-        fi = next(
-            (x for x in actions if x.type == "fade_in" and x.track == a.track),
-            None,
-        )
-        if fi is None:
             continue
         eq_any_non_default = (
             (a.low  is not None and a.low  != 1.0) or
@@ -231,10 +236,8 @@ def _restore_incoming_eq(actions: list[MixAction]) -> list[MixAction]:
             (a.high is not None and a.high != 1.0)
         )
         if not eq_any_non_default:
-            continue  # eq is already unity — no restore needed
-        restore_bar = (fi.start_bar or 0) + (fi.duration_bars or 0)
-        restore_bar = round(restore_bar / PHRASE) * PHRASE
-        # Only inject if there isn't already a restore at or after this bar
+            continue
+        restore_bar = round(_transition_end_bar(a.track) / PHRASE) * PHRASE
         already_restored = any(
             x.type == "eq" and x.track == a.track
             and (x.bar or 0) >= restore_bar
@@ -248,7 +251,7 @@ def _restore_incoming_eq(actions: list[MixAction]) -> list[MixAction]:
                 low=1.0, mid=1.0, high=1.0,
             ))
             print(
-                f"[normalizer] restored EQ for incoming {a.track} at bar {restore_bar} "
+                f"[normalizer] restored EQ for continuing {a.track} at bar {restore_bar} "
                 f"(had low={a.low} mid={a.mid} high={a.high} from bar {a.bar})"
             )
 
