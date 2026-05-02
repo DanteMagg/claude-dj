@@ -457,13 +457,14 @@ Examples are retrieved dynamically at runtime based on the current transition co
 
 The key structural patterns to internalize from those examples:
 
-- **ALWAYS emit `eq(T1, bar=fade_in.start_bar - 8, low=0.0)`** — cut T1's bass 8 bars BEFORE T2 enters. This is persistent (holds until end of track). Without this, T1's bass bleeds through the entire fade window.
-- **Always fade_in T2 with `bass: 0.0`** for the first 8–16 bars. Bass swap is explicit.
-- **bass_swap fires at the midpoint** of the fade window (fade_in.start_bar + overlap/2).
-- **play T2 at fade_in.start_bar + overlap**, from_bar = fade_in.from_bar + overlap.
+- **ALWAYS emit `eq(T1, bar=fade_in.start_bar - 8, low=0.0)`** — cut T1's bass 8 bars BEFORE T2 enters. EQ is **PERSISTENT** (holds until end of track or until a second eq action overrides it). Without this, T1's bass bleeds through the entire fade window. This EQ on T1 is fine to persist since T1 is fading out.
+- **Always fade_in T2 with `bass: 0.0`** for the first 8–16 bars. Bass swap is explicit. **Do NOT emit an additional eq or fade_in to restore T2's bass** — the `play` action at `fade_in.start_bar + overlap` automatically plays T2's full mix including bass.
+- **bass_swap fires at the midpoint** of the fade window (`fade_in.start_bar + overlap/2`). It cuts T1's bass via HPF. It does NOT restore T2's bass — that is handled by the `play` action.
+- **play T2 at `fade_in.start_bar + overlap`**, `from_bar = fade_in.from_bar + overlap`. This is what restores T2's full bass — not bass_swap, not a second eq.
 - **fade_out T1 starts at the same bar as fade_in T2 starts** (they are simultaneous).
-- **T1 from_bar** is often 8–32 to skip a sparse intro; T2 from_bar skips T2's silent lead-in.
+- **from_bar for any track**: set to the track's first non-silent bar. Use the zone data — find the first bar where `drums > 0.1` OR `harmonic > 0.05`. Never default to 0 without checking. A track with 8 bars of near-silence before the groove starts should have `from_bar=8`.
 - **overlap_bars = 16** is the default for house/deep house blends; 8 for cuts, 24–32 for long blends.
+- **Any non-unity eq MUST have a matching restore**: if you write `eq(T2, bar=72, mid=0.4)`, you MUST also write `eq(T2, bar=<blend_end_bar>, low=1.0, mid=1.0, high=1.0)`. EQ is permanent until overridden — the normalizer injects a restore as a safety net but may place it at the wrong bar.
 - **Camelot ±1 moves**: A→A+1, A→B (relative), B→A (relative minor) are all safe. Same key allows earlier harmonic blending.
 
 ## 9. AUDIO FEATURE-BASED SECTION DETECTION

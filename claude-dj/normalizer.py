@@ -212,7 +212,38 @@ def _restore_incoming_eq(actions: list[MixAction]) -> list[MixAction]:
     outgoing_tids = {
         a.track for a in actions if a.type == "fade_out"
     }
+    # Tracks that continue past the transition window (no fade_out).
     continuing_tids = incoming_tids - outgoing_tids
+
+    # Also guard outgoing tracks whose EQ fires AFTER their fade_out starts.
+    # In a loop-blend T1 is still playing when eq(T1, low=0.0) fires — the EQ
+    # window may extend past the loop end if T1's outro continues. Specifically,
+    # any eq on an outgoing track whose `bar` > fade_out.start_bar needs a restore
+    # at fade_out.start_bar (the EQ would otherwise color audio during active play).
+    # We handle this by including them in the restore sweep with a custom end bar.
+    outgoing_eq_restore: dict[str, int] = {}  # tid → restore bar
+    for a in actions:
+        if a.type != "eq" or a.track not in outgoing_tids:
+            continue
+        fo = next((x for x in actions if x.type == "fade_out" and x.track == a.track), None)
+        if fo is None:
+            continue
+        fo_start = fo.start_bar or 0
+        eq_bar   = a.bar or 0
+        if eq_bar > fo_start:
+            # EQ fires inside/after the fade_out — nothing to restore (track is fading out)
+            pass
+        else:
+            # EQ fires before the fade_out starts — it will color T1's active play window.
+            # The fade_out's bass-first HPF handles the low end, but mid/high EQ from this
+            # action needs a restore at the fade_out start bar (or just before T1 exits).
+            eq_any_non_low = (
+                (a.mid  is not None and a.mid  != 1.0) or
+                (a.high is not None and a.high != 1.0)
+            )
+            if eq_any_non_low:
+                # Only mid/high need a restore — the fade_out handles bass.
+                outgoing_eq_restore[a.track] = fo_start
 
     def _transition_end_bar(tid: str) -> int:
         """Bar at which the blend window for this incoming track closes."""
@@ -227,6 +258,22 @@ def _restore_incoming_eq(actions: list[MixAction]) -> list[MixAction]:
         return PHRASE  # fallback
 
     injected: list[MixAction] = []
+
+    # Restore EQ on outgoing tracks that have mid/high cut before their fade_out
+    for tid, restore_bar in outgoing_eq_restore.items():
+        already = any(
+            x.type == "eq" and x.track == tid
+            and (x.bar or 0) >= restore_bar
+            and x.mid == 1.0 and x.high == 1.0
+            for x in actions
+        )
+        if not already:
+            injected.append(MixAction(
+                type="eq", track=tid, bar=restore_bar,
+                low=1.0, mid=1.0, high=1.0,
+            ))
+            print(f"[normalizer] restored mid/high EQ for outgoing {tid} at bar {restore_bar} (fade_out start)")
+
     for a in actions:
         if a.type != "eq" or a.track not in continuing_tids:
             continue

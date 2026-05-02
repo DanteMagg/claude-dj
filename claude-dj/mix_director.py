@@ -282,13 +282,25 @@ This is not optional. It is as mandatory as `bass_swap`.
 - `bass_swap` cuts T1's low band (<=200 Hz) to silence and restores T2's bass. **MANDATORY on
   every blend transition**: omitting it means BOTH kick drums play simultaneously — instant mud.
   Fire ONCE per transition at a phrase boundary (multiple of 8) inside the overlap window, after
-  T2's fade_in is ~50% complete. Pre-fade: T1 full bass, T2 bass=0.0 in stems. Post-swap: T1
-  bass killed, T2 full bass. This is non-negotiable for a clean mix.
-- `eq`: `low` controls a continuous HPF cutoff — low=1.0 is bypass, low=0.5 cuts below ~80 Hz
-  (sub-bass only), low=0.0 cuts below 200 Hz (full bass removed). `high` is a shelf at 8 kHz
-  (1.0=unity, 0.0=−12 dB). `mid` is a ±6 dB broadband trim. Use low=0.3–0.5 for a gentle
-  bass trim; reserve low=0.0 only for a full bass kill. **Never have both T1 and T2 at low=1.0
-  simultaneously during the blend window** — at least one must have bass reduced or use bass_swap.
+  T2's fade_in is ~50% complete.
+  **EXACT MECHANICS**: bass_swap cuts T1's bass via an HPF (T1 loses sub). It does NOT automatically
+  restore T2's bass — T2's bass was silenced in the fade_in stems (bass=0.0) and stays silent until
+  the `play` action fires. The `play` action at `fade_in.start_bar + fade_in.duration_bars` is what
+  restores T2's bass (the full mix plays, including bass). So:
+    - fade_in.stems.bass = 0.0  → T2 bass silent
+    - bass_swap at midpoint     → T1 bass cut
+    - play at end of fade_in    → T2 full mix (bass restored)
+  DO NOT emit a second fade_in or eq to restore T2's bass — the play action handles it.
+- `eq`: **PERSISTENT from `bar` to end of mix** — it does NOT auto-reset. Think of it as a
+  channel EQ knob you physically turn: if you turn it down and don't turn it back up, it stays
+  down forever. `low` controls a continuous HPF cutoff — low=1.0 is bypass, low=0.5 cuts below
+  ~80 Hz (sub-bass only), low=0.0 cuts below 200 Hz (full bass removed). `high` is a shelf at
+  8 kHz (1.0=unity, 0.0=−12 dB). `mid` is a ±6 dB broadband trim.
+  **MANDATORY PATTERN**: any non-unity eq MUST be followed by a matching restore action:
+  `{"type":"eq","track":"T2","bar":<blend_end_bar>,"low":1.0,"mid":1.0,"high":1.0}`.
+  If you write `eq(T2, bar=72, mid=0.4)` and never restore, T2 will play with suppressed mids
+  for its entire run. The normalizer injects a restore automatically, but its bar placement may
+  be wrong — always write it explicitly. Never have both T1 and T2 at low > 0.5 simultaneously.
 - `loop`: extend an outro or hold a peak phrase.
   RULES: `start_bar` MUST be a multiple of 8. Use 4- or 8-bar loops only. 1-3 repeats max.
   MECHANICS: after the loop, the track automatically resumes from source bar
