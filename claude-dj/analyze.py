@@ -41,6 +41,54 @@ ANALYSIS_SR = 22050
 # Cap analysis at 3 minutes — sufficient for section/cue detection.
 MAX_ANALYSIS_SECONDS = 180
 
+# ── Tag thresholds ────────────────────────────────────────────────────────────
+_VOC_ACTIVE_THRESH   = 0.30
+_HARM_SAFE_THRESH    = 0.10
+_VOC_SAFE_THRESH     = 0.20
+_DRUM_ACTIVE_THRESH  = 0.25
+_HARM_FADE_THRESH    = 0.20
+
+
+def _assign_tags(drums: float, harmonic: float, vocals: float) -> list[str]:
+    """Return semantic tags for a single bar given its stem RMS values (0–1)."""
+    tags: list[str] = []
+    if vocals > _VOC_ACTIVE_THRESH:
+        tags.append("VOCAL_ACTIVE")
+
+    loop_safe = harmonic < _HARM_SAFE_THRESH and vocals < _VOC_SAFE_THRESH and drums > _DRUM_ACTIVE_THRESH
+    if loop_safe:
+        tags.append("LOOP_SAFE")
+    else:
+        if vocals > _VOC_ACTIVE_THRESH:
+            tags.append("LOOP_UNSAFE_VOX")
+        if harmonic > 0.15:
+            tags.append("LOOP_UNSAFE_HARM")
+
+    if drums > _DRUM_ACTIVE_THRESH and harmonic < _HARM_FADE_THRESH and vocals < _VOC_SAFE_THRESH:
+        tags.append("FADE_IN_OK")
+
+    return tags
+
+
+def _build_vocal_regions(normalized_rms_by_bar: list[float]) -> list[tuple[int, int]]:
+    """
+    Given per-bar normalized vocal RMS (0–1), return a list of (start_bar, end_bar)
+    tuples covering contiguous runs where vocal > _VOC_ACTIVE_THRESH.
+    """
+    regions: list[tuple[int, int]] = []
+    in_region = False
+    region_start = 0
+    for i, v in enumerate(normalized_rms_by_bar):
+        if v > _VOC_ACTIVE_THRESH and not in_region:
+            in_region = True
+            region_start = i
+        elif v <= _VOC_ACTIVE_THRESH and in_region:
+            in_region = False
+            regions.append((region_start, i - 1))
+    if in_region:
+        regions.append((region_start, len(normalized_rms_by_bar) - 1))
+    return regions
+
 
 def file_hash(path: str) -> str:
     h = hashlib.sha256()
