@@ -47,6 +47,7 @@ _HARM_SAFE_THRESH    = 0.10
 _VOC_SAFE_THRESH     = 0.20
 _DRUM_ACTIVE_THRESH  = 0.25
 _HARM_FADE_THRESH    = 0.20
+_RMS_LOW_THRESH      = 0.35
 
 
 def _assign_tags(drums: float, harmonic: float, vocals: float) -> list[str]:
@@ -88,6 +89,149 @@ def _build_vocal_regions(normalized_rms_by_bar: list[float]) -> list[tuple[int, 
     if in_region:
         regions.append((region_start, len(normalized_rms_by_bar) - 1))
     return regions
+
+
+_PROFILE_LOOP_BARS = (2, 4, 8, 16)
+
+
+def _snap_profile_loop_bars(n: int) -> int:
+    """Snap n to nearest valid loop bar length for MixingProfile candidates."""
+    return min(_PROFILE_LOOP_BARS, key=lambda v: (abs(v - n), -v))
+
+
+def _classify_intro(first_bars: list[dict]) -> str:
+    """Classify intro type from the first ≤8 bar-feature dicts."""
+    if not first_bars:
+        return "silent"
+    window = first_bars[:8]
+    avg_rms = sum(b["rms"] for b in window) / len(window)
+    avg_drums = sum(b["drums"] for b in window) / len(window)
+    avg_h = sum(b["harmonic"] for b in window) / len(window)
+    avg_voc = sum(b["vocals"] for b in window) / len(window)
+
+    if avg_rms < 0.10:
+        return "silent"
+    if avg_rms > 0.60:
+        return "instant-drop"
+    if avg_drums > _DRUM_ACTIVE_THRESH and avg_h < 0.15 and avg_voc < _VOC_SAFE_THRESH:
+        return "drums-only"
+    if avg_h > 0.20:
+        return "melodic"
+    return "silent"
+
+
+def _classify_outro(last_bars: list[dict]) -> str:
+    """Classify outro type from the last ≤16 bar-feature dicts."""
+    if not last_bars:
+        return "fade-silence"
+    window = last_bars[-16:]
+    tail = last_bars[-4:] if len(last_bars) >= 4 else last_bars
+
+    if all(b["rms"] < 0.05 for b in tail):
+        return "cold-stop"
+
+    if any(b["vocals"] > _VOC_ACTIVE_THRESH for b in window):
+        return "vocals-to-end"
+
+    avg_drums = sum(b["drums"] for b in window) / len(window)
+    avg_h = sum(b["harmonic"] for b in window) / len(window)
+    avg_voc = sum(b["vocals"] for b in window) / len(window)
+
+    if avg_drums > 0.20 and avg_h < 0.15 and avg_voc < _VOC_SAFE_THRESH:
+        return "drums-only"
+
+    return "fade-silence"
+
+
+def _find_loop_candidates(bar_features: list[dict]) -> list:
+    """
+    Find spans of 4+ consecutive LOOP_SAFE bars, snap to valid loop lengths,
+    score, and return top 5 LoopCandidate objects ranked best first.
+    """
+    from schema import LoopCandidate
+
+    safe_runs: list[tuple[int, int]] = []  # (start_idx, end_idx) inclusive
+    in_run = False
+    run_start = 0
+    for i, b in enumerate(bar_features):
+        is_safe = (
+            b["harmonic"] < _HARM_SAFE_THRESH
+            and b["vocals"] < _VOC_SAFE_THRESH
+            and b["drums"] > _DRUM_ACTIVE_THRESH
+        )
+        if is_safe and not in_run:
+            in_run, run_start = True, i
+        elif not is_safe and in_run:
+            in_run = False
+            if i - run_start >= 4:
+                safe_runs.append((run_start, i - 1))
+    if in_run and len(bar_features) - run_start >= 4:
+        safe_runs.append((run_start, len(bar_features) - 1))
+
+    candidates: list[LoopCandidate] = []
+    for start_idx, end_idx in safe_runs:
+        span = end_idx - start_idx + 1
+        snapped = _snap_profile_loop_bars(span)
+        bars_slice = bar_features[start_idx : start_idx + snapped]
+        if not bars_slice:
+            continue
+        avg_h   = sum(b["harmonic"] for b in bars_slice) / len(bars_slice)
+        avg_voc = sum(b["vocals"]   for b in bars_slice) / len(bars_slice)
+        avg_d   = sum(b["drums"]    for b in bars_slice) / len(bars_slice)
+        score   = snapped - avg_h * 10 - avg_voc * 10
+        start_bar = bar_features[start_idx]["bar"]
+        reason = (
+            f"drums-only, h={avg_h:.2f}, vocals={avg_voc:.2f}, "
+            f"drums={avg_d:.2f}, {snapped} bars clean"
+        )
+        candidates.append((score, LoopCandidate(start_bar=start_bar, bars=snapped, reason=reason)))
+
+    candidates.sort(key=lambda x: -x[0])
+    return [c for _, c in candidates[:5]]
+
+
+def _find_transition_windows(bar_features: list[dict]) -> list:
+    """
+    Find spans of 8+ consecutive bars with rms < _RMS_LOW_THRESH and vocals < _VOC_SAFE_THRESH.
+    Score and return top 3 TransitionWindow objects ranked best first.
+    """
+    from schema import TransitionWindow
+
+    windows: list[tuple[float, TransitionWindow]] = []
+    n = len(bar_features)
+    i = 0
+    while i < n:
+        b = bar_features[i]
+        if b["rms"] < _RMS_LOW_THRESH and b["vocals"] < _VOC_SAFE_THRESH:
+            j = i + 1
+            while j < n and bar_features[j]["rms"] < _RMS_LOW_THRESH and bar_features[j]["vocals"] < _VOC_SAFE_THRESH:
+                j += 1
+            span = j - i
+            if span >= 8:
+                window_bars = bar_features[i:j]
+                avg_drums = sum(b2["drums"]    for b2 in window_bars) / span
+                avg_h     = sum(b2["harmonic"] for b2 in window_bars) / span
+
+                if avg_drums > _DRUM_ACTIVE_THRESH and avg_h < 0.15:
+                    character = "drums-only"
+                elif avg_drums < 0.15 and avg_h < 0.15:
+                    character = "breakdown"
+                else:
+                    character = "sparse-melodic"
+
+                quality = min(10, int(span / 2 + (1 - avg_h) * 5))
+                score = quality + (1.0 if character == "drums-only" else 0.0)
+                windows.append((score, TransitionWindow(
+                    bar=bar_features[i]["bar"],
+                    quality=quality,
+                    character=character,
+                )))
+            i = j
+        else:
+            i += 1
+
+    windows.sort(key=lambda x: -x[0])
+    return [w for _, w in windows[:3]]
 
 
 def file_hash(path: str) -> str:
