@@ -717,102 +717,255 @@ The DERIVED HINTS block (if present) has already computed the preferred bars fro
 
 The suggested window (`t1_exit_bar`, `t2_enter_bar`, `window_bars`) is a starting point —
 adjust ±8 bars to land on cleaner phrase boundaries visible in the zone data.
+
+---
+
+**3. Loop placement rule**
+loop.start_bar MUST reference a bar annotated [LOOP_SAFE] in the zone table above.
+Never place a loop on a bar annotated [LOOP_UNSAFE_VOX] or [LOOP_UNSAFE_HARM].
 """
 
 
-def _compute_zone_hints(t1_zone: list[dict], t2_zone: list[dict]) -> str:
+def _compute_zone_hints(
+    t1_zone: list[dict],
+    t2_zone: list[dict],
+    t1_profile=None,
+    t2_profile=None,
+    t1: Optional["TrackAnalysis"] = None,
+    t2: Optional["TrackAnalysis"] = None,
+) -> str:
     """
-    Derive concrete action targets from zone measurements and surface them as explicit
-    hints so Claude doesn't have to rediscover the same decisions from raw numbers.
+    Derive concrete action targets from zone measurements and produce
+    interpretive hint blocks so Claude reads decisions, not raw numbers.
     """
-    hints: list[str] = []
+    blocks: list[str] = []
 
+    # ── Vocal sequencing block ────────────────────────────────────────────────
+    t1_vocal_bars = [r["bar"] for r in t1_zone if "VOCAL_ACTIVE" in r.get("tags", [])]
+    t2_vocal_bars = [r["bar"] for r in t2_zone if "VOCAL_ACTIVE" in r.get("tags", [])]
+
+    if t1_vocal_bars or t2_vocal_bars:
+        vocal_lines = ["VOCAL SITUATION:"]
+        if t1_vocal_bars:
+            last_voc = max(t1_vocal_bars)
+            eq_bar = last_voc - 4
+            vocal_lines.append(f"  T1 vocals active until bar {last_voc} (last [VOCAL_ACTIVE] bar in T1 exit zone)")
+            vocal_lines.append(f"  → eq(T1, bar={eq_bar}, mid=0.3) — cut T1 mids 4 bars before T1 vocals end")
+            vocal_lines.append(f"  → Do NOT restore T1 mid — vocals would re-emerge into the blend")
+        if t2_vocal_bars:
+            first_voc = min(t2_vocal_bars)
+            vocal_lines.append(f"  T2 vocals enter at bar {first_voc} (first [VOCAL_ACTIVE] bar in T2 entry zone)")
+            vocal_lines.append(f"  → T1 mids must reach ≤ 0.3 before T2 bar {first_voc}")
+            if t1_vocal_bars:
+                t1_clear = max(t1_vocal_bars)
+                safe_overlap = first_voc - (t1_clear - max(t1_zone, key=lambda r: r["bar"])["bar"] if t1_zone else 0)
+                vocal_lines.append(f"  → Maximum safe overlap: ensure T1 vocal region ends before T2 reaches bar {first_voc}")
+        blocks.append("\n".join(vocal_lines))
+
+    # ── Bass swap block with BECAUSE clause ──────────────────────────────────
     if t1_zone:
-        # Preferred bass_swap bar: minimum drums + harmonic (least energy to carry over)
-        best_swap = min(t1_zone, key=lambda r: r["drums"] + r["harmonic"])
-        raw_bar   = best_swap["bar"]
-        snap_bar  = round(raw_bar / 8) * 8  # snap to nearest phrase boundary
-        snap_note = f" (raw b{raw_bar} snapped to multiple of 8)" if snap_bar != raw_bar else ""
-        hints.append(
-            f"T1 preferred bass_swap bar: b{snap_bar}{snap_note} "
-            f"(d+h={best_swap['drums'] + best_swap['harmonic']:.2f}, lowest in exit zone)"
+        best_swap    = min(t1_zone, key=lambda r: r["drums"] + r["harmonic"])
+        raw_bar      = best_swap["bar"]
+        snap_bar     = round(raw_bar / 8) * 8
+        snap_note    = f" (raw b{raw_bar} snapped to ×8)" if snap_bar != raw_bar else ""
+
+        # Determine T1 section at swap bar
+        t1_section_at_swap = ""
+        if t1 is not None:
+            for s in t1.sections:
+                if s.start_bar <= snap_bar < s.end_bar:
+                    t1_section_at_swap = f", T1 in {s.label.upper()} section"
+                    break
+
+        # T2 context
+        t2_drums_only = [r for r in t2_zone if r["drums"] > 0.25 and r["harmonic"] < 0.20]
+        t2_bass_entry = next((r for r in t2_zone if r["harmonic"] > 0.30), None)
+
+        t2_context = ""
+        if t2_drums_only:
+            t2_context += f", T2 drums active b{t2_drums_only[0]['bar']}–b{t2_drums_only[-1]['bar']}"
+        if t2_bass_entry:
+            t2_context += f", T2 harmonic enters bar {t2_bass_entry['bar']}"
+
+        # Vocal clearance note
+        voc_clearance = ""
+        t1_last_voc = max(t1_vocal_bars) if t1_vocal_bars else None
+        t2_first_voc = min(t2_vocal_bars) if t2_vocal_bars else None
+        if t1_last_voc is not None or t2_first_voc is not None:
+            parts = []
+            if t1_last_voc is not None:
+                parts.append(f"T1 vocal end={t1_last_voc}")
+            if t2_first_voc is not None:
+                parts.append(f"T2 vocal start={t2_first_voc}")
+            voc_clearance = f", vocals clear both sides ({', '.join(parts)})"
+
+        dh_sum = best_swap["drums"] + best_swap["harmonic"]
+        blocks.append(
+            f"T1 preferred bass_swap: bar {snap_bar}{snap_note}\n"
+            f"  BECAUSE: d+h={dh_sum:.2f} (lowest in exit zone)"
+            f"{t1_section_at_swap}{t2_context}{voc_clearance}"
         )
-        # High-energy bars to avoid as transition entry points
-        drop_bars = [r["bar"] for r in t1_zone if r["rms"] > 0.6 and r["drums"] > 0.6]
-        if drop_bars:
-            hints.append(
-                f"T1 DROP/high-energy bars in zone: {drop_bars[:6]} — "
-                "do NOT start T2 fade_in at these bars"
+
+    # ── Loop candidates block ────────────────────────────────────────────────
+    if t1_zone:
+        loop_lines = ["LOOP CANDIDATES in T1 exit zone:"]
+        # Find runs of LOOP_SAFE bars
+        safe_runs: list[list[int]] = []
+        current: list[int] = []
+        for r in t1_zone:
+            if "LOOP_SAFE" in r.get("tags", []):
+                current.append(r["bar"])
+            else:
+                if current:
+                    safe_runs.append(current)
+                    current = []
+        if current:
+            safe_runs.append(current)
+
+        # Find unsafe spans
+        unsafe_spans: list[dict] = []
+        current_unsafe: list[dict] = []
+        current_reason = ""
+        for r in t1_zone:
+            tags = r.get("tags", [])
+            if "LOOP_UNSAFE_VOX" in tags:
+                reason = "LOOP_UNSAFE_VOX"
+            elif "LOOP_UNSAFE_HARM" in tags:
+                reason = "LOOP_UNSAFE_HARM"
+            else:
+                reason = ""
+            if reason:
+                if reason == current_reason:
+                    current_unsafe.append(r)
+                else:
+                    if current_unsafe:
+                        unsafe_spans.append({"bars": current_unsafe, "reason": current_reason})
+                    current_unsafe = [r]
+                    current_reason = reason
+            else:
+                if current_unsafe:
+                    unsafe_spans.append({"bars": current_unsafe, "reason": current_reason})
+                    current_unsafe = []
+                    current_reason = ""
+        if current_unsafe:
+            unsafe_spans.append({"bars": current_unsafe, "reason": current_reason})
+
+        shown = 0
+        for run in safe_runs[:2]:
+            if not run:
+                continue
+            span_rows = [r for r in t1_zone if r["bar"] in run]
+            avg_h   = sum(r["harmonic"] for r in span_rows) / len(span_rows)
+            avg_voc = sum(r["vocals"]   for r in span_rows) / len(span_rows)
+            avg_d   = sum(r["drums"]    for r in span_rows) / len(span_rows)
+            loop_lines.append(
+                f"  ✓ bars {run[0]}–{run[-1]}: LOOP_SAFE "
+                f"(h={avg_h:.2f}, vocals={avg_voc:.2f}, drums={avg_d:.2f}) — "
+                f"{len(run)} bars clean"
+            )
+            shown += 1
+
+        for span in unsafe_spans[:2]:
+            bars = span["bars"]
+            if not bars:
+                continue
+            reason = span["reason"]
+            avg_val = (
+                sum(r["vocals"]   for r in bars) / len(bars) if "VOX"  in reason else
+                sum(r["harmonic"] for r in bars) / len(bars)
+            )
+            detail = (
+                f"vocals={avg_val:.2f} — active vocal, do not loop" if "VOX"  in reason else
+                f"h={avg_val:.2f} — harmonic content present"
+            )
+            loop_lines.append(
+                f"  ✗ bars {bars[0]['bar']}–{bars[-1]['bar']}: {reason} ({detail})"
             )
 
-    if t2_zone:
-        # Drums-only intro window: drums active but harmonic/bass not yet
-        drums_only = [r for r in t2_zone if r["drums"] > 0.25 and r["harmonic"] < 0.20]
-        if drums_only:
-            hints.append(
-                f"T2 drums-only intro window: b{drums_only[0]['bar']}–b{drums_only[-1]['bar']} "
-                "— start fade_in here (drums present, bass not yet)"
-            )
-        # First bar where T2 bass/harmonic enters
-        bass_entry = next((r for r in t2_zone if r["harmonic"] > 0.30), None)
-        if bass_entry:
-            hints.append(
-                f"T2 bass enters at b{bass_entry['bar']} "
-                "— bass_swap.incoming must fire at or before this bar"
-            )
+        if shown == 0 and not unsafe_spans:
+            loop_lines.append("  (no LOOP_SAFE or LOOP_UNSAFE bars tagged in zone)")
 
-    if not hints:
+        blocks.append("\n".join(loop_lines))
+
+    # ── Technique recommendation block ────────────────────────────────────────
+    rec_lines = ["RECOMMENDED TECHNIQUE:"]
+    avoid_items: list[str] = []
+
+    # Count clean T1 runway
+    t1_clean_bars = [r for r in t1_zone if r.get("rms", 1.0) < 0.35 and r["vocals"] < 0.20]
+    clean_runway = len(t1_clean_bars)
+
+    # Camelot distance if tracks provided
+    camelot_note = ""
+    bpm_note = ""
+    if t1 is not None and t2 is not None:
+        try:
+            dist = _camelot_distance(
+                getattr(t1.key, "camelot", ""),
+                getattr(t2.key, "camelot", ""),
+            )
+            camelot_note = f"Camelot dist={dist}"
+            bpm_delta = abs(t1.bpm - t2.bpm)
+            bpm_note = f"ΔBPM={bpm_delta:.1f}"
+        except Exception:
+            pass
+
+    # Choose technique
+    if clean_runway >= 16:
+        technique = "blend"
+        window = 32 if clean_runway >= 32 else 16
+    else:
+        technique = "cut"
+        window = 8
+
+    # Override if profile says instant-drop entry
+    t2_intro_note = ""
+    if t2_profile is not None:
+        if t2_profile.intro_type == "instant-drop":
+            technique = "cut"
+            window = 8
+            avoid_items.append("fade_in into instant-drop T2 entry (use cut instead)")
+            t2_intro_note = "T2 instant-drop entry"
+        elif t2_profile.intro_type == "drums-only":
+            t2_intro_note = "T2 drums-only intro"
+
+    reason_parts = []
+    if clean_runway:
+        reason_parts.append(f"T1 clean runway {clean_runway} bars")
+    if camelot_note:
+        reason_parts.append(camelot_note)
+    if bpm_note:
+        reason_parts.append(bpm_note)
+    if t1_vocal_bars:
+        reason_parts.append(f"T1 vocals end bar {max(t1_vocal_bars)}")
+    if t2_intro_note:
+        reason_parts.append(t2_intro_note)
+
+    rec_lines.append(f"  {technique}, {window} bars")
+    if reason_parts:
+        rec_lines.append(f"  BECAUSE: {', '.join(reason_parts)}")
+
+    # Avoid clauses
+    if t1_vocal_bars or t2_vocal_bars:
+        avoid_items.append("overlap with vocals at full mid level in either track")
+    unsafe_tagged = [r["bar"] for r in t1_zone if any(
+        t in r.get("tags", []) for t in ("LOOP_UNSAFE_VOX", "LOOP_UNSAFE_HARM")
+    )]
+    if unsafe_tagged:
+        avoid_items.append(f"loop on [LOOP_UNSAFE_*] bars {unsafe_tagged[:4]}")
+
+    if avoid_items:
+        rec_lines.append("  AVOID: " + "; ".join(avoid_items))
+
+    blocks.append("\n".join(rec_lines))
+
+    if not blocks:
         return ""
     return (
         "DERIVED HINTS (computed from zone data — use as direct action targets):\n"
-        + "\n".join(f"  • {h}" for h in hints)
+        + "\n\n".join(blocks)
         + "\n\n"
     )
-
-
-def _vocal_warning(
-    t1: TrackAnalysis,
-    t2: TrackAnalysis,
-    window: dict,
-) -> str:
-    """
-    Check whether T1's exit region or T2's entry region has an active vocal line
-    (using per-section stem_presence) and surface a concrete mixing warning.
-    """
-    t1_exit_bar  = window["t1_exit_bar"]
-    t2_enter_bar = window["t2_enter_bar"]
-
-    t1_has_vox = any(
-        s.stems.vocals.presence >= 5 and s.end_bar >= t1_exit_bar
-        for s in t1.sections
-    )
-    t2_has_vox = any(
-        s.stems.vocals.presence >= 5 and s.start_bar <= t2_enter_bar + 32
-        for s in t2.sections
-        if s.start_bar >= t2_enter_bar
-    )
-
-    if not t1_has_vox and not t2_has_vox:
-        return ""
-
-    lines = ["VOCAL WARNING:"]
-    if t1_has_vox and t2_has_vox:
-        lines.append(
-            "  !! BOTH tracks have vocals in the transition window — highest collision risk."
-        )
-        lines.append(
-            "     → Keep overlap ≤8 bars, or choose a T1 exit before its vocal section ends."
-        )
-    if t1_has_vox:
-        lines.append(
-            "  ! T1 has vocals in its exit section — schedule eq(T1, mid=0.3) at T2 fade_in start."
-        )
-    if t2_has_vox:
-        lines.append(
-            "  ! T2 has vocals in its entry — ensure T1 mids are attenuated before T2 vocal arrives."
-        )
-    lines.append("")
-    return "\n".join(lines) + "\n"
 
 
 def _format_plan_prompt(
@@ -829,8 +982,12 @@ def _format_plan_prompt(
     t1_table = _format_zone_table(t1_zone, "T1", "exit zone")
     t2_table = _format_zone_table(t2_zone, "T2", "entry zone")
 
-    zone_hints      = _compute_zone_hints(t1_zone, t2_zone)
-    vocal_warning   = _vocal_warning(t1, t2, window)
+    zone_hints     = _compute_zone_hints(
+        t1_zone, t2_zone,
+        t1_profile=getattr(t1, "mixing_profile", None),
+        t2_profile=getattr(t2, "mixing_profile", None),
+        t1=t1, t2=t2,
+    )
     retrieved_exs   = retrieve_examples(t1, t2, window, k=3, concept=concept)
     examples_block  = _format_examples_block(retrieved_exs)
 
@@ -862,7 +1019,6 @@ def _format_plan_prompt(
         f"T2 enters bar {window['t2_enter_bar']}, "
         f"overlap = EXACTLY {window['window_bars']} bars (set fade_in.duration_bars = fade_out.duration_bars = {window['window_bars']}), "
         f"style={window['style']}\n\n"
-        f"{vocal_warning}"
         f"{zone_hints}"
         f"{examples_block}"
         f"{t1_table}\n\n"

@@ -43,3 +43,114 @@ def test_zone_table_no_tags_row_clean():
     assert "vox=0.05" in table
     # No tag brackets should appear for this row
     assert "[" not in table or "exit zone" not in table.split("[")[0]
+
+
+# --- Task 7 additions ---
+
+from mix_director import _compute_zone_hints
+
+
+def _make_zone(start_bar, n, drums=0.70, harmonic=0.05, rms=0.40, vocals=0.0, tags=None):
+    rows = []
+    for i in range(n):
+        t = list(tags) if tags else []
+        rows.append({
+            "bar": start_bar + i, "drums": drums, "harmonic": harmonic,
+            "rms": rms, "brightness": 0.4, "onsets": 2,
+            "vocals": vocals, "tags": t,
+        })
+    return rows
+
+
+# ── _compute_zone_hints (no profiles) ───────────────────────────────────────
+
+def test_hints_returns_nonempty_string_for_zones():
+    t1 = _make_zone(64, 16)
+    t2 = _make_zone(0, 16)
+    result = _compute_zone_hints(t1, t2)
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
+def test_bass_swap_hint_present():
+    t1 = _make_zone(64, 16)
+    t2 = _make_zone(0, 16)
+    result = _compute_zone_hints(t1, t2)
+    assert "bass_swap" in result.lower() or "preferred" in result.lower()
+
+
+def test_bass_swap_has_because_clause():
+    t1 = _make_zone(64, 16)
+    t2 = _make_zone(0, 16)
+    result = _compute_zone_hints(t1, t2)
+    assert "BECAUSE" in result
+
+
+# ── _compute_zone_hints (with VOCAL_ACTIVE tags) ─────────────────────────────
+
+def test_vocal_situation_block_present_when_vocals_in_t1():
+    t1 = _make_zone(64, 16, vocals=0.50, tags=["VOCAL_ACTIVE", "LOOP_UNSAFE_VOX"])
+    t2 = _make_zone(0, 16)
+    result = _compute_zone_hints(t1, t2)
+    assert "VOCAL SITUATION" in result
+
+
+def test_vocal_situation_shows_t1_last_vocal_bar():
+    t1_zone = []
+    for i in range(8):
+        t1_zone.append({"bar": 64 + i, "drums": 0.7, "harmonic": 0.05, "rms": 0.4,
+                        "brightness": 0.4, "onsets": 2, "vocals": 0.5,
+                        "tags": ["VOCAL_ACTIVE", "LOOP_UNSAFE_VOX"]})
+    for i in range(8):
+        t1_zone.append({"bar": 72 + i, "drums": 0.7, "harmonic": 0.05, "rms": 0.4,
+                        "brightness": 0.4, "onsets": 2, "vocals": 0.05,
+                        "tags": ["LOOP_SAFE"]})
+    t2 = _make_zone(0, 16)
+    result = _compute_zone_hints(t1_zone, t2)
+    assert "bar 71" in result or "b71" in result  # last vocal bar (0-indexed: 64+7=71)
+
+
+def test_vocal_situation_shows_t2_vocal_entry():
+    t1 = _make_zone(64, 16)
+    t2_zone = []
+    for i in range(4):
+        t2_zone.append({"bar": i, "drums": 0.7, "harmonic": 0.05, "rms": 0.4,
+                        "brightness": 0.4, "onsets": 2, "vocals": 0.05, "tags": []})
+    for i in range(4, 16):
+        t2_zone.append({"bar": i, "drums": 0.7, "harmonic": 0.05, "rms": 0.4,
+                        "brightness": 0.4, "onsets": 2, "vocals": 0.50,
+                        "tags": ["VOCAL_ACTIVE", "LOOP_UNSAFE_VOX"]})
+    result = _compute_zone_hints(t1, t2_zone)
+    assert "bar 4" in result or "b4" in result  # first T2 vocal bar
+
+
+# ── Loop candidates block ────────────────────────────────────────────────────
+
+def test_loop_candidates_block_present_when_loop_safe_bars():
+    t1 = _make_zone(64, 16, tags=["LOOP_SAFE"])
+    t2 = _make_zone(0, 16)
+    result = _compute_zone_hints(t1, t2)
+    assert "LOOP CANDIDATES" in result
+
+
+def test_loop_candidates_block_shows_unsafe():
+    t1 = _make_zone(64, 16, vocals=0.5, tags=["VOCAL_ACTIVE", "LOOP_UNSAFE_VOX"])
+    t2 = _make_zone(0, 16)
+    result = _compute_zone_hints(t1, t2)
+    assert "LOOP_UNSAFE" in result or "LOOP CANDIDATES" in result
+
+
+# ── Technique recommendation ─────────────────────────────────────────────────
+
+def test_technique_recommendation_block_present():
+    t1 = _make_zone(64, 16)
+    t2 = _make_zone(0, 16)
+    result = _compute_zone_hints(t1, t2)
+    assert "RECOMMENDED TECHNIQUE" in result
+
+
+def test_technique_recommendation_has_avoid_clause():
+    t1 = _make_zone(64, 16, vocals=0.5, tags=["VOCAL_ACTIVE", "LOOP_UNSAFE_VOX"])
+    t2 = _make_zone(0, 16)
+    result = _compute_zone_hints(t1, t2)
+    assert "AVOID" in result
