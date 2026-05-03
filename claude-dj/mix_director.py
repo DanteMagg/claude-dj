@@ -258,20 +258,54 @@ You are the Claude DJ brain. Output a professional mix script as JSON from the s
 
 Every track except the very last MUST have a `fade_out`. Schedule it at the mix_out cue or BREAKDOWN. The normalizer will inject one as a safety net but it will be placed wrong.
 
+### FADE_IN IS MANDATORY FOR EVERY BLEND TRANSITION
+
+**If Camelot dist ≤ 2: ALWAYS use `fade_in`, even when both tracks have vocals.**
+Dual vocals do NOT justify CUT on a compatible key pair. Use `stems: {drums:0.8, bass:0.0, vocals:0.0, other:0.6}` to hold back T2's vocal during the blend — T2 enters as rhythm + texture only. Release T2's vocal after `bass_swap` by omitting the `vocals` key from stems (or using a fresh `play` action). This is exactly what stems are for.
+
+A bare `play(T2)` while T1 is audible = full-volume slam-in. NEVER do this on a blend.
+
+CUT is only correct when **Camelot dist ≥ 3**. On dist ≤ 2, always `fade_in`.
+
 ---
 
-### BASS SWAP PATTERN — use this exact sequence every blend transition
+### STEMS — T2 enters via stems, not EQ
+
+Use `stems` in `fade_in` to control which parts of T2 come in and at what volume.
+T2 enters as rhythm + texture only — no bass, no lead vocal yet.
 
 ```
-eq(T2, bar=<fade_in.start_bar>, low=0.0)          // kill T2 bass before fade_in
-fade_in(T2, start_bar=X, duration_bars=N, from_bar=Y)
+eq(T2, bar=<fade_in.start_bar>, low=0.0)                         // kill T2 bass
+fade_in(T2, start_bar=X, duration_bars=N, from_bar=Y,
+         stems={"drums": 0.8, "bass": 0.0, "other": 0.6})        // kick+texture only
 bass_swap(T1, at_bar=<midpoint multiple of 8>, incoming_track="T2")
-eq(T2, bar=<bass_swap.at_bar>, low=1.0)            // restore T2 bass at swap
-play(T2, at_bar=X+N, from_bar=Y+N)
+eq(T2, bar=<bass_swap.at_bar>, low=1.0)                          // restore T2 bass
+play(T2, at_bar=X+N, from_bar=Y+N)                               // T2 full playback
 fade_out(T1, start_bar=X, duration_bars=N)
 ```
 
-`bass_swap` REQUIRES `incoming_track`. Fire at a multiple-of-8 phrase boundary ~50% into the fade window (concept directives may specify early=25% or late=75%).
+**Default stems values:** `{"drums": 0.8, "bass": 0.0, "other": 0.6}`.
+Adjust `other` lower (0.3–0.5) for harmonic clash or higher (0.8) for dense texture blend.
+Set `vocals: 0.0` explicitly when T2 has a strong vocal and you want it held back until after bass_swap.
+
+### EQ RAMPS — smooth like a real DJ knob
+
+Add `eq_duration_bars` to make any EQ change ramp smoothly instead of snapping.
+
+```
+eq(T1, bar=<fade_in.start_bar - 8>, low=1.0, mid=0.5, eq_duration_bars=4)  // mid ramps down over 4 bars
+eq(T1, bar=<fade_in.start_bar>, low=0.0, eq_duration_bars=2)                // bass cuts over 2 bars
+```
+
+Use `eq_duration_bars: 2–4` for all EQ changes. Never let them snap (no duration = jarring).
+
+### GAIN — duck T1 volume independently
+
+```
+gain(T1, at_bar=<8 bars before fade_out>, volume=0.7, duration_bars=8)  // gentle level duck
+```
+
+`volume`: 0.0=silence, 1.0=unity. Use for riding levels, not replacing fade_out.
 
 ---
 
@@ -288,10 +322,11 @@ Output ONLY valid JSON. `reasoning`: 3–5 sentences citing section labels, bar 
   ],
   "actions": [
     {"type": "play",      "track": "T1", "at_bar": 16, "from_bar": 16},
-    {"type": "eq",        "track": "T2", "bar": 80,    "low": 0.0, "mid": 1.0, "high": 1.0},
-    {"type": "fade_in",   "track": "T2", "start_bar": 80, "duration_bars": 16, "from_bar": 8},
+    {"type": "eq",        "track": "T1", "bar": 72,    "low": 1.0, "mid": 0.5, "eq_duration_bars": 4},
+    {"type": "eq",        "track": "T2", "bar": 80,    "low": 0.0},
+    {"type": "fade_in",   "track": "T2", "start_bar": 80, "duration_bars": 16, "from_bar": 8, "stems": {"drums": 0.8, "bass": 0.0, "other": 0.6}},
     {"type": "bass_swap", "track": "T1", "at_bar": 88, "incoming_track": "T2"},
-    {"type": "eq",        "track": "T2", "bar": 88,    "low": 1.0, "mid": 1.0, "high": 1.0},
+    {"type": "eq",        "track": "T2", "bar": 88,    "low": 1.0},
     {"type": "play",      "track": "T2", "at_bar": 96, "from_bar": 24},
     {"type": "fade_out",  "track": "T1", "start_bar": 80, "duration_bars": 16},
     {"type": "loop",      "track": "T1", "start_bar": 64, "loop_bars": 8, "loop_repeats": 2}
@@ -299,7 +334,7 @@ Output ONLY valid JSON. `reasoning`: 3–5 sentences citing section labels, bar 
 }
 ```
 
-Bar values in plan_transition are LOCAL to each track's first downbeat. `eq` values: 0.0=kill, 1.0=unity. `bass_swap.at_bar` and `loop.start_bar` must be multiples of 8.
+Bar values are LOCAL to each track's first downbeat. `eq` values: 0.0=kill, 1.0=unity. `bass_swap.at_bar` and `loop.start_bar` must be multiples of 8.
 """
 
 
@@ -719,6 +754,53 @@ def _annotate_bar(row: dict, prev: Optional[dict]) -> str:
     return ("  [" + " ".join(labels) + "]") if labels else ""
 
 
+def _trim_zone(zone: list[dict], max_bars: int) -> list[dict]:
+    """Return at most max_bars rows from zone, from the start."""
+    return zone[:max_bars]
+
+
+def _format_situation_summary(
+    t1: "TrackAnalysis",
+    t2: "TrackAnalysis",
+    window: dict,
+    t2_zone: list[dict],
+) -> str:
+    """Produce the compact SITUATION block for the Phase 2 prompt."""
+    t1_section = "unknown"
+    for s in t1.sections:
+        if s.start_bar <= window["t1_exit_bar"] < s.end_bar:
+            t1_section = s.label.upper()
+            break
+
+    t1_bars_remain = max(0, t1.bar_grid.n_bars - window["t1_exit_bar"])
+
+    t2_profile = getattr(t2, "mixing_profile", None)
+    intro_type = t2_profile.intro_type if t2_profile else "unknown"
+
+    first_harm_bar: str = "unknown"
+    for r in t2_zone:
+        if r.get("harmonic", 0.0) > 0.20:
+            first_harm_bar = str(r["bar"])
+            break
+
+    camelot_dist = _camelot_distance(
+        getattr(t1.key, "camelot", ""),
+        getattr(t2.key, "camelot", ""),
+    )
+    bpm_delta = abs(t1.bpm - t2.bpm)
+
+    return (
+        f"SITUATION:\n"
+        f"  T1: \"{t1.title}\" by {t1.artist}"
+        f" — {t1_section} exit, bar {window['t1_exit_bar']}."
+        f" {t1_bars_remain} bars of track remain.\n"
+        f"  T2: \"{t2.title}\" by {t2.artist}"
+        f" — {intro_type} intro. First harmonic content: bar {first_harm_bar}.\n"
+        f"  Key: {t1.key.camelot}→{t2.key.camelot}"
+        f" (Camelot dist={camelot_dist}). BPM delta: {bpm_delta:.1f}."
+    )
+
+
 def _format_zone_table(zone: list[dict], track_id: str, label: str) -> str:
     if not zone:
         return f"{track_id} {label}: (no zone data)\n"
@@ -759,17 +841,22 @@ Annotations: [DROP] [BREAKDOWN] [SILENT] [KICK-IN] [BASS-IN] [KICK-OUT] [BASS-OU
 
 ---
 
-### HARD RULES — these are the two most audible failure modes
+### HARD RULES — these are the three most audible failure modes
 
-**1. Vocal overlap**
-- If T1's exit section has vocals ("vox" in SECTIONS) and T2's entry section also has vocals, a
-  vocal-on-vocal collision is almost certain. In that case: cut T1's mids aggressively
-  (`eq mid=0.2`) the moment T2's fade_in starts, and keep the overlap short (≤8 bars).
-- Even with only one vocal track, schedule an `eq` to attenuate T1 mids (`mid=0.3–0.4`) before
-  the T2 vocal becomes audible. Never let two lead vocals play at full mid simultaneously.
-- Use the "vox" field in SECTIONS to determine whether each section has an active vocal line.
+**1. Mid/harmonic clash during blend**
+- Any time two tracks overlap and T1's harmonic content is h > 0.4 at the blend window, the mids
+  will pile up and clash. **Always** add `eq(T1, mid=0.4–0.5)` at `fade_in.start_bar` so T1's
+  mid-range ducks as T2 enters. Restore with `eq(T1, mid=1.0)` is NOT needed — T1 is fading out.
+- This applies even when neither track has detected vocals. Two harmonic tracks blending at full
+  mid = audible muddiness every time.
 
-**2. Never mix through an energy peak**
+**2. Vocal overlap**
+- If BOTH tracks have active vocals AND Camelot dist ≤ 2: use `fade_in` with `stems: {drums:0.8, bass:0.0, vocals:0.0, other:0.6}`. T2 enters as drums + texture, **no T2 vocal**. Cut T1 mids: `eq(T1, mid=0.2, eq_duration_bars=2)`. Keep overlap ≤ 8 bars.
+- **Do NOT choose CUT just because of dual vocals when dist ≤ 2.** CUT makes it worse — T2 slams in at full vocal immediately. Stems + short overlap is always cleaner.
+- If Camelot dist ≥ 3: CUT is correct. Keep overlap ≤ 4 bars.
+- Single vocal on T1 only: `eq(T1, mid=0.3, eq_duration_bars=2)` before T2's vocal bar.
+
+**3. Never mix through an energy peak**
 - [DROP] bars are the loudest, densest moment of a track — starting T2's fade_in here will be
   completely buried and the transition will sound like a sudden doubled mix.
 - If T1's zone contains [DROP] bars, pick the lowest-density window *before* or *after* the DROP
@@ -782,11 +869,12 @@ Annotations: [DROP] [BREAKDOWN] [SILENT] [KICK-IN] [BASS-IN] [KICK-OUT] [BASS-OU
 ### ZONE → ACTION MAPPING
 
 Use the zone data to place actions precisely:
-- `bass_swap.at_bar` = nearest **multiple of 8** to the T1 bar where `d+h` is minimum; always include `incoming_track` = T2's id. If the minimum-energy bar is e.g. bar 71, use bar 72 (round to nearest 8). Never use an odd bar number.
-- `fade_in.start_bar` = T2's first bar where drums are present (d > 0.25) but harmonic is
-  not yet (h < 0.20) — enter on the drum hit, before the bass kicks in
+- `bass_swap.at_bar` = nearest **multiple of 8** to the T1 bar where `d+h` is minimum; always include `incoming_track` = T2's id. Round to nearest 8.
+- `fade_in.start_bar` = T2's first bar where drums are present (d > 0.25) but harmonic not yet (h < 0.20). Always include `stems={"drums":0.8,"bass":0.0,"other":0.6}`.
 - `fade_out.start_bar` = T1's first [KICK-OUT] or [BREAKDOWN] bar (falling drums edge)
-- `eq.mid` on T1 = attenuate to 0.3 when T2's vocal section begins (if T1 has vox)
+- `eq(T1, mid=0.4–0.5, eq_duration_bars=4)` at `fade_in.start_bar - 4` — **always when T1 h > 0.4** (rule 1). Use ramp.
+- `eq(T1, mid=0.2–0.3, eq_duration_bars=2)` when T2 vocal bars begin — **always when vox detected** (rule 2). Use ramp.
+- `eq(T1, low=0.0, eq_duration_bars=2)` or `eq(T2, low=0.0)` to cut bass — **always use eq_duration_bars to ramp bass cuts**.
 
 The DERIVED HINTS block (if present) has already computed the preferred bars from zone data
 — treat them as strong defaults, only override if a phrase-boundary reason exists.
@@ -794,11 +882,26 @@ The DERIVED HINTS block (if present) has already computed the preferred bars fro
 The suggested window (`t1_exit_bar`, `t2_enter_bar`, `window_bars`) is a starting point —
 adjust ±8 bars to land on cleaner phrase boundaries visible in the zone data.
 
+**CUT vs BLEND decision — follow this exactly:**
+- dist ≤ 2 → **BLEND**: `fade_in` + `fade_out` + `bass_swap`. Suppress T2 vocal with `stems: {vocals:0.0}` if needed. No exceptions.
+- dist 3 → **SHORT BLEND or CUT**: prefer 8-bar blend with `fade_in(duration_bars=8)` if energy is low; CUT if T2 is a full drop entry.
+- dist ≥ 4 → **CUT**: hard cut, `fade_out` on T1 only, `play` T2 directly.
+
 ---
 
 **3. Loop placement rule**
-loop.start_bar MUST reference a bar annotated [LOOP_SAFE] in the zone table above.
-Never place a loop on a bar annotated [LOOP_UNSAFE_VOX] or [LOOP_UNSAFE_HARM].
+Two valid strategies — choose one per transition:
+
+Strategy A (loop T1): extend T1's runway while T2 fades in underneath.
+  loop(T1).start_bar MUST reference either a [LOOP_SAFE] bar in T1's zone table
+  OR a bar listed under "From full-track analysis" in the T1 LOOP CANDIDATES block.
+
+Strategy B (loop T2 fade-in): T2 enters as a looped texture, then breaks free.
+  Use loop(T2) + fade_in(T2) together. loop(T2).start_bar MUST reference a bar
+  listed in T2 LOOP CANDIDATES block above. The loop break happens when play(T2)
+  fires at fade_in end — T2 resumes from `fade_in.from_bar + fade_in.duration_bars`.
+
+Never loop a bar annotated [LOOP_UNSAFE_VOX]. One loop per transition (T1 or T2, not both).
 """
 
 
@@ -961,7 +1064,37 @@ def _compute_zone_hints(
         if shown == 0 and not unsafe_spans:
             loop_lines.append("  (no LOOP_SAFE or LOOP_UNSAFE bars tagged in zone)")
 
+        # Surface mixing_profile loop_candidates that are NEAR the exit zone.
+        # A loop at source bar 0 is useless if T1 is at bar 72 — only show candidates
+        # within 32 bars before the zone start so the agent can actually use them.
+        if t1_profile is not None and hasattr(t1_profile, "loop_candidates") and t1_profile.loop_candidates:
+            zone_start_bar = t1_zone[0]["bar"] if t1_zone else 0
+            nearby = [
+                lc for lc in t1_profile.loop_candidates
+                if (getattr(lc, "start_bar", None) or 0) >= zone_start_bar - 32
+            ]
+            if nearby:
+                loop_lines.append("  From full-track analysis (near exit zone):")
+                for lc in nearby[:3]:
+                    lc_bar  = getattr(lc, "start_bar", None) or getattr(lc, "bar", "?")
+                    lc_bars = getattr(lc, "bars", 8)
+                    lc_why  = getattr(lc, "reason", "")
+                    loop_lines.append(f"    ✓ bar {lc_bar}, {lc_bars}-bar loop — {lc_why}")
+
         blocks.append("\n".join(loop_lines))
+
+        # ── T2 loop candidates (Strategy B: fade in a T2 loop) ────────────────
+        t2_loop_lines = ["T2 LOOP CANDIDATES (for fade-in-loop strategy):"]
+        if t2_profile is not None and hasattr(t2_profile, "loop_candidates") and t2_profile.loop_candidates:
+            t2_loop_lines.append("  Use loop(T2, ...) + fade_in(T2, ...) together — T2 enters as a looped texture.")
+            for lc in t2_profile.loop_candidates[:3]:
+                lc_bar  = getattr(lc, "start_bar", None) or getattr(lc, "bar", "?")
+                lc_bars = getattr(lc, "bars", 8)
+                lc_why  = getattr(lc, "reason", "")
+                t2_loop_lines.append(f"  ✓ T2 bar {lc_bar}, {lc_bars}-bar loop — {lc_why}")
+        else:
+            t2_loop_lines.append("  (no T2 loop candidates available — use straight fade_in)")
+        blocks.append("\n".join(t2_loop_lines))
 
     # ── Technique recommendation block ────────────────────────────────────────
     rec_lines = ["RECOMMENDED TECHNIQUE:"]
@@ -1163,6 +1296,16 @@ def plan_transition(
             ),
         )
 
+    # Print vocal info from zone data so we can see what the agent was given
+    def _vocal_summary(zone, label):
+        if not zone:
+            return f"{label}: no zone data"
+        vocal_bars = [r['bar'] for r in zone if r.get('vocal', 0) > 0.3]
+        clean_bars  = [r['bar'] for r in zone if r.get('vocal', 0) <= 0.15]
+        return f"{label}: vocal_bars={vocal_bars[:8]} clean_bars={clean_bars[:8]}"
+    print(f"[mix_director] {_vocal_summary(t1_zone, 'T1')}")
+    print(f"[mix_director] {_vocal_summary(t2_zone, 'T2')}")
+
     client = anthropic.Anthropic()
     system_text = _load_system_prompt() + _PLAN_TASK_SUFFIX
     prompt = _format_plan_prompt(t1, t2, t1_zone, t2_zone, window, concept=concept)
@@ -1223,10 +1366,12 @@ def plan_transition(
     logger.debug("Claude reasoning:\n  %s", reasoning.replace("\n", "\n  "))
 
     actions = data.get("actions", [])
-    logger.debug(
-        "Claude actions (%d):\n%s",
-        len(actions),
-        "\n".join(f"  {json.dumps(a, separators=(',', ':'))}" for a in actions),
+    print(
+        f"[mix_director] plan_transition reasoning: {reasoning[:300].replace(chr(10), ' ')}"
+    )
+    print(
+        f"[mix_director] plan_transition actions ({len(actions)}):\n"
+        + "\n".join(f"  {json.dumps(a, separators=(',', ':'))}" for a in actions)
     )
 
     script = _dict_to_mix_script(data, [t1, t2])
@@ -1378,6 +1523,8 @@ def _dict_to_mix_script(data: dict, analyses: list[TrackAnalysis]) -> MixScript:
             low=a.get("low"),
             mid=a.get("mid"),
             high=a.get("high"),
+            eq_duration_bars=a.get("eq_duration_bars"),
+            volume=a.get("volume"),
             incoming_track=a.get("incoming_track"),
             loop_bars=a.get("loop_bars"),
             loop_repeats=a.get("loop_repeats"),
