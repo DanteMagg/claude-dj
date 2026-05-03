@@ -135,6 +135,8 @@ def test_stems_release_ramp_injected_when_vocals_suppressed():
     assert bloom is not None, "expected mid bloom at fade_end"
     assert dip.eq_duration_bars  == 4
     assert bloom.eq_duration_bars == 4
+    # bass=0.0 in stems → dip keeps low=0.0 so bloom ramps bass from 0→1 (no slam)
+    assert dip.low == 0.0, "dip should keep low=0.0 when bass was suppressed"
 
 
 def test_stems_release_ramp_not_injected_when_vocals_present():

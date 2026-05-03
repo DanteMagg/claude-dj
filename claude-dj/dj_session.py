@@ -284,6 +284,7 @@ async def dj_worker(
             if not pool:
                 break
             if state.let_claude_pick and os.environ.get("ANTHROPIC_API_KEY"):
+                state.deck_b = DjDeckB(status="selecting", title="…")
                 try:
                     next_hash = await loop.run_in_executor(
                         _bg_executor, pick_next_track,

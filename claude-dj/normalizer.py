@@ -545,10 +545,13 @@ def _ramp_stems_release(actions: list[MixAction]) -> list[MixAction]:
         logger.debug("NORMALIZER INJECT: %s", msg)
         print(f"[normalizer] {msg}")
 
-        # Dip: mid arrives at 0.0 just as stems constraints lift at fade_end
+        # Dip: mid arrives at 0.0 and low stays 0.0 so the bloom's eq_from.low=0.0,
+        # giving a smooth 0→1 bass ramp (instead of a slam) when the full track takes over.
+        has_bass_suppressed = fi.stems.get("bass", 1.0) == 0.0 if fi.stems else False
+        dip_low = 0.0 if has_bass_suppressed else 1.0
         injected.append(MixAction(
             type="eq", track=tid, bar=ramp_start,
-            low=1.0, mid=0.0, high=0.7, eq_duration_bars=RAMP,
+            low=dip_low, mid=0.0, high=0.7, eq_duration_bars=RAMP,
         ))
         # Bloom: mid and high swell back to unity — vocals come in naturally
         injected.append(MixAction(
