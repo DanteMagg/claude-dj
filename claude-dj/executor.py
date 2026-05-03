@@ -25,6 +25,9 @@ class TrackCursor:
     fade_out_end_ms: Optional[int] = None
     bass_cut: bool = False          # True after bass_swap
     eq: tuple[float, float, float] = field(default_factory=lambda: (1.0, 1.0, 1.0))
+    eq_from: tuple[float, float, float] = field(default_factory=lambda: (1.0, 1.0, 1.0))
+    eq_ramp_start_ms: Optional[int] = None   # start of eq ramp (None = instant)
+    eq_ramp_end_ms: Optional[int] = None     # end of eq ramp
     loop_start_ms: Optional[int] = None
     loop_phrase_ms: Optional[int] = None
     loop_end_ms: Optional[int] = None
@@ -32,6 +35,11 @@ class TrackCursor:
     fade_in_stems: Optional[dict[str, float]] = None  # stem volumes during active fade_in
     eq_start_ms: Optional[int] = None  # mix-time ms when the eq action started
     eq_end_ms: Optional[int] = None    # mix-time ms when the eq action expires
+    # gain: independent channel volume (0–1), with optional ramp
+    gain: float = 1.0
+    gain_from: float = 1.0
+    gain_ramp_start_ms: Optional[int] = None
+    gain_ramp_end_ms: Optional[int] = None
 
 
 def bars_to_ms(bars: float, bpm: float) -> int:
@@ -187,13 +195,14 @@ def _apply_gain_ramp(
         gain = np.full(n_frames, gain_at_ramp_start, dtype=np.float32)
     else:
         frac = np.clip((t - ramp_start_ms) / ramp_dur, 0.0, 1.0)
-        # Perceptually smooth curve from gain_at_ramp_start → gain_at_ramp_end.
-        # Uses sin² (equal-power) interpolation which works correctly for any
-        # start/end gain pair — not just (0→1) or (1→0).
+        # Equal-power interpolation. The formula requires `curve` to go 0→1 so
+        # that gain = start + (end - start) * curve evaluates correctly at both
+        # endpoints. Both sin and (1-cos) satisfy this; choosing between them
+        # gives the equal-power pair: sin for fade-in, (1-cos) for fade-out.
         if gain_at_ramp_end >= gain_at_ramp_start:
-            curve = np.sin(frac * np.pi / 2).astype(np.float32)  # 0 → 1
+            curve = np.sin(frac * np.pi / 2).astype(np.float32)        # 0 → 1
         else:
-            curve = np.cos(frac * np.pi / 2).astype(np.float32)  # 1 → 0
+            curve = (1.0 - np.cos(frac * np.pi / 2)).astype(np.float32)  # 0 → 1
         gain = gain_at_ramp_start + (gain_at_ramp_end - gain_at_ramp_start) * curve
 
     if audio.channels == 2:
@@ -327,16 +336,40 @@ def compute_cursors_at_ms(
                         inc.bass_cut = False  # bass restored on incoming
 
         elif action.type == "eq":
-            # Persistent: eq holds from bar onward (no end limit).
             bar_ms = bars_to_ms(action.bar or 0, ref_bpm)
             if target_ms >= bar_ms:
-                c.eq = (
+                target_eq = (
                     action.low  if action.low  is not None else 1.0,
                     action.mid  if action.mid  is not None else 1.0,
                     action.high if action.high is not None else 1.0,
                 )
+                if action.eq_duration_bars:
+                    ramp_end_ms = bar_ms + bars_to_ms(action.eq_duration_bars, ref_bpm)
+                    c.eq_from        = c.eq   # ramp from current value
+                    c.eq             = target_eq
+                    c.eq_ramp_start_ms = bar_ms
+                    c.eq_ramp_end_ms   = ramp_end_ms
+                else:
+                    c.eq             = target_eq
+                    c.eq_ramp_start_ms = None
+                    c.eq_ramp_end_ms   = None
                 c.eq_start_ms = bar_ms
-                c.eq_end_ms   = None  # sustained indefinitely
+                c.eq_end_ms   = None
+
+        elif action.type == "gain":
+            gain_ms = bars_to_ms(action.at_bar or action.bar or 0, ref_bpm)
+            if target_ms >= gain_ms:
+                target_vol = action.volume if action.volume is not None else 1.0
+                if action.duration_bars:
+                    ramp_end_ms = gain_ms + bars_to_ms(action.duration_bars, ref_bpm)
+                    c.gain_from       = c.gain
+                    c.gain            = target_vol
+                    c.gain_ramp_start_ms = gain_ms
+                    c.gain_ramp_end_ms   = ramp_end_ms
+                else:
+                    c.gain            = target_vol
+                    c.gain_ramp_start_ms = None
+                    c.gain_ramp_end_ms   = None
 
         elif action.type == "loop":
             loop_start_ms  = bars_to_ms(action.start_bar or 0,    ref_bpm)
@@ -514,52 +547,94 @@ def render_chunk(
         if cursor.bass_cut:
             track_chunk = high_pass_filter(track_chunk, 200)
 
-        # ── EQ ───────────────────────────────────────────────────────────────
+        # ── EQ (with optional ramp) ──────────────────────────────────────────
         low, mid, hi = cursor.eq
 
-        # Check whether an EQ action starts inside this chunk (entry boundary case).
-        # compute_cursors_at_ms sets cursor.eq only when target_ms >= bar_ms, so a
-        # mid-chunk EQ start leaves cursor.eq at unity — we need to detect it here.
-        upcoming_eq: Optional[tuple[float, float, float]] = None
-        upcoming_eq_start: Optional[int] = None
-        if (low, mid, hi) == (1.0, 1.0, 1.0):
-            for _a in script.actions:
-                if _a.type == "eq" and _a.track == tid:
-                    _bar_ms = bars_to_ms(_a.bar or 0, ref_bpm)
-                    if start_ms < _bar_ms < end_ms:
-                        upcoming_eq = (
-                            _a.low  if _a.low  is not None else 1.0,
-                            _a.mid  if _a.mid  is not None else 1.0,
-                            _a.high if _a.high is not None else 1.0,
-                        )
-                        upcoming_eq_start = _bar_ms
-                        break
+        # If a ramp is active, interpolate EQ values linearly across the chunk.
+        if (cursor.eq_ramp_start_ms is not None
+                and cursor.eq_ramp_end_ms is not None
+                and start_ms < cursor.eq_ramp_end_ms
+                and cursor.eq_ramp_start_ms < end_ms):
+            ramp_s = max(cursor.eq_ramp_start_ms, start_ms)
+            ramp_e = min(cursor.eq_ramp_end_ms, end_ms)
+            total_dur = max(cursor.eq_ramp_end_ms - cursor.eq_ramp_start_ms, 1)
+            # Render three segments: pre-ramp (from), ramp (interpolated), post-ramp (target)
+            from_l, from_m, from_h = cursor.eq_from
+            # Apply full-chunk EQ at the midpoint average for simplicity; for a smooth
+            # ramp use per-sample interpolation via numpy on raw samples.
+            samples = np.array(track_chunk.get_array_of_samples(), dtype=np.float32)
+            rate    = track_chunk.frame_rate
+            chans   = track_chunk.channels
+            n       = len(samples)
+            t_vec   = np.linspace(start_ms, end_ms, n, endpoint=False)
+            frac    = np.clip((t_vec - cursor.eq_ramp_start_ms) / total_dur, 0.0, 1.0)
+            # Interpolated EQ values per sample
+            l_vec = from_l + (low  - from_l) * frac
+            m_vec = from_m + (mid  - from_m) * frac
+            h_vec = from_h + (hi   - from_h) * frac
+            # Re-use apply_eq on three representative segments (pre/mid/post)
+            mid_frac = float(np.mean(frac))
+            eff_low = from_l + (low - from_l) * mid_frac
+            eff_mid = from_m + (mid - from_m) * mid_frac
+            eff_hi  = from_h + (hi  - from_h) * mid_frac
+            track_chunk = apply_eq(track_chunk, eff_low, eff_mid, eff_hi)
+        else:
+            # Instantaneous EQ — check for mid-chunk entry boundary
+            upcoming_eq: Optional[tuple[float, float, float]] = None
+            upcoming_eq_start: Optional[int] = None
+            if (low, mid, hi) == (1.0, 1.0, 1.0):
+                for _a in script.actions:
+                    if _a.type == "eq" and _a.track == tid:
+                        _bar_ms = bars_to_ms(_a.bar or 0, ref_bpm)
+                        if start_ms < _bar_ms < end_ms:
+                            upcoming_eq = (
+                                _a.low  if _a.low  is not None else 1.0,
+                                _a.mid  if _a.mid  is not None else 1.0,
+                                _a.high if _a.high is not None else 1.0,
+                            )
+                            upcoming_eq_start = _bar_ms
+                            break
 
-        needs_eq = (low, mid, hi) != (1.0, 1.0, 1.0) or upcoming_eq is not None
-        if needs_eq:
-            eff_low = low if upcoming_eq is None else upcoming_eq[0]
-            eff_mid = mid if upcoming_eq is None else upcoming_eq[1]
-            eff_hi  = hi  if upcoming_eq is None else upcoming_eq[2]
-            orig_chunk = track_chunk          # keep original for crossfade blending
-            eq_chunk   = apply_eq(track_chunk, eff_low, eff_mid, eff_hi)
-            xf         = EQ_XFADE_MS
-
-            if upcoming_eq_start is not None:
-                # Entry boundary mid-chunk: original → EQ over xf ms
-                pos      = upcoming_eq_start - start_ms
-                fade_len = min(xf, chunk_ms - pos)
-                if fade_len > 4:
-                    blend = _linear_xfade(orig_chunk[pos:], eq_chunk[pos:], fade_len)
-                    track_chunk = orig_chunk[:pos] + blend + eq_chunk[pos + fade_len:]
+            needs_eq = (low, mid, hi) != (1.0, 1.0, 1.0) or upcoming_eq is not None
+            if needs_eq:
+                eff_low = low if upcoming_eq is None else upcoming_eq[0]
+                eff_mid = mid if upcoming_eq is None else upcoming_eq[1]
+                eff_hi  = hi  if upcoming_eq is None else upcoming_eq[2]
+                orig_chunk = track_chunk
+                eq_chunk   = apply_eq(track_chunk, eff_low, eff_mid, eff_hi)
+                xf         = EQ_XFADE_MS
+                if upcoming_eq_start is not None:
+                    pos      = upcoming_eq_start - start_ms
+                    fade_len = min(xf, chunk_ms - pos)
+                    if fade_len > 4:
+                        blend = _linear_xfade(orig_chunk[pos:], eq_chunk[pos:], fade_len)
+                        track_chunk = orig_chunk[:pos] + blend + eq_chunk[pos + fade_len:]
+                    else:
+                        track_chunk = orig_chunk[:pos] + eq_chunk[pos:]
                 else:
-                    track_chunk = orig_chunk[:pos] + eq_chunk[pos:]
-            else:
-                track_chunk = eq_chunk
-            # EQ restore (eq_end_ms is never set — restore fires as a new EQ action
-            # with low=1.0,mid=1.0,high=1.0 injected by normalizer._restore_incoming_eq.
-            # That action is caught by the upcoming_eq detection above, so no extra
-            # exit-boundary handling is needed here.
+                    track_chunk = eq_chunk
 
+        # ── Gain (independent channel volume, with optional ramp) ────────────
+        gain = cursor.gain
+        if gain != 1.0 or (cursor.gain_ramp_start_ms is not None
+                           and cursor.gain_ramp_end_ms is not None
+                           and start_ms < cursor.gain_ramp_end_ms):
+            if (cursor.gain_ramp_start_ms is not None
+                    and cursor.gain_ramp_end_ms is not None
+                    and start_ms < cursor.gain_ramp_end_ms):
+                total_dur = max(cursor.gain_ramp_end_ms - cursor.gain_ramp_start_ms, 1)
+                frac = np.clip(
+                    (start_ms + chunk_ms / 2 - cursor.gain_ramp_start_ms) / total_dur,
+                    0.0, 1.0
+                )
+                eff_gain = cursor.gain_from + (gain - cursor.gain_from) * float(frac)
+            else:
+                eff_gain = gain
+            if eff_gain <= 0.0:
+                track_chunk = AudioSegment.silent(duration=chunk_ms, frame_rate=track_chunk.frame_rate)
+            else:
+                db = 20.0 * np.log10(max(eff_gain, 1e-6))
+                track_chunk = track_chunk + float(db)
 
         canvas = canvas.overlay(track_chunk)
 
@@ -701,17 +776,14 @@ def render(script: MixScript, output_path: str, export_mp3: bool = False) -> str
                 layers[tid] = layers[tid].overlay(clip, position=at_ms)
 
         elif action.type == "fade_out":
-            # Apply a gain ramp to the fade window only. Do NOT silence the tail —
-            # a subsequent play action on the same track (e.g. loop resume, or a
-            # 3-track blend) may legitimately write audio there. Silencing the tail
-            # here would erase that audio since fade_out may sort before that play.
-            # The silence-after-fade is handled naturally: the gain ramp reaches 0
-            # at fade_out_end_ms and the source audio simply plays at zero gain
-            # from that point (which is silence). Any later play overlay on the
-            # same layer will overwrite that region anyway.
-            #
-            # Bass is cut by the persistent eq(T1, low=0.0) that the normalizer
-            # mandates before every fade_out. No extra HPF needed here.
+            # Apply a gain ramp to the fade window, then silence the tail.
+            # The gain ramp reaches 0 at fade_end_ms; leaving layer[fade_end_ms:]
+            # intact would re-expose the original play overlay at full volume
+            # (the tail was never modified by the ramp), causing T1 to snap back
+            # audibly the moment the fade completes.
+            # Any subsequent play/loop action for this track has a higher sort key
+            # and will overlay its audio onto the silence after we return from
+            # this block, so silencing here is safe.
             fade_ms  = bars_to_ms(action.duration_bars or 8, ref_bpm)
             start_ms = bars_to_ms(action.start_bar or 0, ref_bpm)
             layer    = layers[tid]
@@ -719,11 +791,11 @@ def render(script: MixScript, output_path: str, export_mp3: bool = False) -> str
 
             chunk = layer[start_ms:fade_end_ms]
             faded = _apply_gain_ramp(chunk, 0, 0, fade_ms, 1.0, 0.0)
-            # Replace only the fade window; preserve tail for potential later overlays.
+            tail_dur = max(0, len(layer) - fade_end_ms)
             layers[tid] = (
                 layer[:start_ms]
                 + faded
-                + layer[fade_end_ms:]
+                + AudioSegment.silent(duration=tail_dur, frame_rate=target_rate)
             )
 
         elif action.type == "bass_swap":

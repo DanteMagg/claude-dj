@@ -43,7 +43,7 @@ MAX_ANALYSIS_SECONDS = 180
 
 # ── Tag thresholds ────────────────────────────────────────────────────────────
 _VOC_ACTIVE_THRESH   = 0.30
-_HARM_SAFE_THRESH    = 0.10
+_HARM_SAFE_THRESH    = 0.40  # club tracks: allow h up to 0.40 — "medium to lower volume stem" is the bar, not pure drums
 _VOC_SAFE_THRESH     = 0.20
 _DRUM_ACTIVE_THRESH  = 0.25
 _HARM_FADE_THRESH    = 0.20
@@ -56,14 +56,16 @@ def _assign_tags(drums: float, harmonic: float, vocals: float) -> list[str]:
     if vocals > _VOC_ACTIVE_THRESH:
         tags.append("VOCAL_ACTIVE")
 
-    loop_safe = harmonic < _HARM_SAFE_THRESH and vocals < _VOC_SAFE_THRESH and drums > _DRUM_ACTIVE_THRESH
+    # LOOP_SAFE: vocal-free + rhythmically active. Harmonic content (bass, synths)
+    # is NOT a disqualifier — tech house sections with heavy production are loopable
+    # as long as the phrase is consistent. The full _find_loop_candidates function
+    # handles phrase-level quality scoring separately.
+    loop_safe = vocals < _VOC_SAFE_THRESH and drums > _DRUM_ACTIVE_THRESH
     if loop_safe:
         tags.append("LOOP_SAFE")
     else:
         if vocals > _VOC_ACTIVE_THRESH:
             tags.append("LOOP_UNSAFE_VOX")
-        if harmonic > 0.15:
-            tags.append("LOOP_UNSAFE_HARM")
 
     if drums > _DRUM_ACTIVE_THRESH and harmonic < _HARM_FADE_THRESH and vocals < _VOC_SAFE_THRESH:
         tags.append("FADE_IN_OK")
@@ -145,46 +147,100 @@ def _classify_outro(last_bars: list[dict]) -> str:
 
 def _find_loop_candidates(bar_features: list[dict]) -> list:
     """
-    Find spans of 4+ consecutive LOOP_SAFE bars, snap to valid loop lengths,
-    score, and return top 5 LoopCandidate objects ranked best first.
+    Find good loop candidates using phrase-level audio science:
+
+    1. Vocal safety — no active vocals at splice point or inside the loop
+    2. RMS stationarity — energy is stable (low std-dev means no sudden drops/builds)
+    3. Phrase self-similarity — the loop window sounds similar to the next identical-length
+       window (beat-synchronous cosine similarity). High similarity = sounds good on repeat.
+    4. Rhythmic presence — some drum/percussive energy present (> threshold)
+
+    Heavy harmonic/bass content is NOT a disqualifier. Tech house loops are almost always
+    full-production sections; the relevant signal-quality criterion is consistency, not sparsity.
+    Returns top 5 candidates ranked by composite score.
     """
     from schema import LoopCandidate
 
-    safe_runs: list[tuple[int, int]] = []  # (start_idx, end_idx) inclusive
-    in_run = False
-    run_start = 0
-    for i, b in enumerate(bar_features):
-        is_safe = (
-            b["harmonic"] < _HARM_SAFE_THRESH
-            and b["vocals"] < _VOC_SAFE_THRESH
-            and b["drums"] > _DRUM_ACTIVE_THRESH
-        )
-        if is_safe and not in_run:
-            in_run, run_start = True, i
-        elif not is_safe and in_run:
-            in_run = False
-            if i - run_start >= 4:
-                safe_runs.append((run_start, i - 1))
-    if in_run and len(bar_features) - run_start >= 4:
-        safe_runs.append((run_start, len(bar_features) - 1))
+    n = len(bar_features)
+    if n < 4:
+        return []
 
-    candidates: list[LoopCandidate] = []
-    for start_idx, end_idx in safe_runs:
-        span = end_idx - start_idx + 1
-        snapped = _snap_profile_loop_bars(span)
-        bars_slice = bar_features[start_idx : start_idx + snapped]
-        if not bars_slice:
-            continue
-        avg_h   = sum(b["harmonic"] for b in bars_slice) / len(bars_slice)
-        avg_voc = sum(b["vocals"]   for b in bars_slice) / len(bars_slice)
-        avg_d   = sum(b["drums"]    for b in bars_slice) / len(bars_slice)
-        score   = snapped - avg_h * 10 - avg_voc * 10
-        start_bar = bar_features[start_idx]["bar"]
-        reason = (
-            f"drums-only, h={avg_h:.2f}, vocals={avg_voc:.2f}, "
-            f"drums={avg_d:.2f}, {snapped} bars clean"
-        )
-        candidates.append((score, LoopCandidate(start_bar=start_bar, bars=snapped, reason=reason)))
+    candidates: list[tuple[float, LoopCandidate]] = []
+    seen_starts: set[int] = set()
+
+    for loop_bars in [4, 8, 16]:
+        # Step by 4 bars so candidates are phrase-aligned
+        for start_idx in range(0, n - loop_bars, 4):
+            # Need two consecutive windows to measure self-similarity
+            end_idx  = start_idx + loop_bars
+            next_end = end_idx + loop_bars
+            if next_end > n:
+                continue
+
+            window      = bar_features[start_idx:end_idx]
+            next_window = bar_features[end_idx:next_end]
+
+            # 1. Vocal safety: no vocal activity inside the loop
+            max_voc_in_loop = max(b["vocals"] for b in window)
+            if max_voc_in_loop > _VOC_SAFE_THRESH:
+                continue
+
+            # 2. Rhythmic presence: drums must be active (loop needs rhythmic anchor)
+            avg_drums = sum(b["drums"] for b in window) / loop_bars
+            if avg_drums < _DRUM_ACTIVE_THRESH:
+                continue
+
+            # 3. RMS stationarity: low variance in energy = smooth loop (no abrupt events)
+            rms_vals   = [b["rms"] for b in window]
+            mean_rms   = sum(rms_vals) / len(rms_vals)
+            rms_std    = float(np.std(rms_vals))
+            # Skip near-silence (min energy for a useful loop)
+            if mean_rms < 0.15:
+                continue
+            # Penalise high variance (energy jumps will sound jarring on repeat)
+            stationarity_ok = rms_std < 0.15
+
+            # 4. Phrase self-similarity: cosine similarity between this window and the
+            #    next identical-length window. Inspired by beat-spectrum / SSM methodology
+            #    (Foote & Uchihashi 2001, Roma et al. DAFx 2021).
+            #    Feature vector per bar: [drums, harmonic, rms] — captures spectral energy
+            #    distribution without phase sensitivity.
+            sim_scores: list[float] = []
+            for a, b in zip(window, next_window):
+                va = np.array([a["drums"], a["harmonic"], a["rms"]], dtype=float)
+                vb = np.array([b["drums"], b["harmonic"], b["rms"]], dtype=float)
+                na, nb = np.linalg.norm(va), np.linalg.norm(vb)
+                if na > 1e-9 and nb > 1e-9:
+                    sim_scores.append(float(np.dot(va, vb) / (na * nb)))
+                else:
+                    sim_scores.append(0.0)
+            avg_sim = sum(sim_scores) / len(sim_scores) if sim_scores else 0.0
+
+            # Require reasonable self-similarity — phrase must actually repeat
+            if avg_sim < 0.80:
+                continue
+
+            # Composite score: longer loops preferred, penalise energy variance,
+            # reward self-similarity and drum presence.
+            score = (avg_sim * 10) + (loop_bars * 0.5) - (rms_std * 5) + (avg_drums * 2)
+            if not stationarity_ok:
+                score -= 3.0
+
+            start_bar = bar_features[start_idx]["bar"]
+
+            # Skip near-duplicate starts within 4 bars
+            if any(abs(start_bar - s) < 4 for s in seen_starts):
+                continue
+            seen_starts.add(start_bar)
+
+            avg_h   = sum(b["harmonic"] for b in window) / loop_bars
+            avg_voc = sum(b["vocals"]   for b in window) / loop_bars
+            reason = (
+                f"sim={avg_sim:.2f}, rms_std={rms_std:.2f}, "
+                f"d={avg_drums:.2f}, h={avg_h:.2f}, voc={avg_voc:.2f}, "
+                f"{loop_bars}-bar phrase"
+            )
+            candidates.append((score, LoopCandidate(start_bar=start_bar, bars=loop_bars, reason=reason)))
 
     candidates.sort(key=lambda x: -x[0])
     return [c for _, c in candidates[:5]]
@@ -302,7 +358,26 @@ def _load_full_bar_features(
     mix_peak  = float(np.sqrt(np.mean(y_mix   ** 2))) + 1e-9
     drum_peak = float(np.sqrt(np.mean(y_drums ** 2))) + 1e-9
     harm_peak = float(np.sqrt(np.mean(y_harm  ** 2))) + 1e-9
-    voc_peak  = float(np.sqrt(np.mean(y_voc   ** 2))) + 1e-9
+    voc_global_mean = float(np.sqrt(np.mean(y_voc ** 2))) + 1e-9
+
+    # Bleed gate: if vocal stem energy is < 4% of drums, Demucs produced only noise bleed
+    # → treat as no-vocals track so we don't block loop detection with phantom vocals.
+    voc_is_bleed = (voc_global_mean / drum_peak) < 0.04
+
+    # Compute per-bar vocal RMS to build a percentile-based normalizer.
+    # Normalizing by the 95th-percentile bar makes non-vocal bars of vocal tracks
+    # read near 0 (relative to the track's loudest vocal moments), unlike mean-based
+    # normalization where bleed-floor bars come out ≈ 1.0.
+    bar_voc_rms_list: list[float] = []
+    for i in range(n_bars):
+        s = int(i * secs_per_bar * sr)
+        e = min(int((i + 1) * secs_per_bar * sr), len(y_voc))
+        if s >= len(y_voc):
+            break
+        bar_voc_rms_list.append(float(np.sqrt(np.mean(y_voc[s:e] ** 2))))
+
+    voc_p95 = float(np.percentile(bar_voc_rms_list, 95)) if bar_voc_rms_list else 1e-9
+    voc_peak = max(voc_p95, 1e-9)
 
     features: list[dict] = []
     for i in range(n_bars):
@@ -315,7 +390,8 @@ def _load_full_bar_features(
         rms   = float(np.sqrt(np.mean(y_mix[s:e]   ** 2))) / mix_peak
         drums = float(np.sqrt(np.mean(y_drums[s:e]  ** 2))) / drum_peak
         harm  = float(np.sqrt(np.mean(y_harm[s:e]   ** 2))) / harm_peak
-        voc   = float(np.sqrt(np.mean(y_voc[s:e]    ** 2))) / voc_peak
+        bar_voc_rms = bar_voc_rms_list[i] if i < len(bar_voc_rms_list) else 0.0
+        voc   = 0.0 if voc_is_bleed else (bar_voc_rms / voc_peak)
 
         # Apply same 1.5x boost for legibility as in analyze_transition_zone
         features.append({
@@ -798,15 +874,31 @@ def analyze_track(audio_path: str, track_id: str, no_stems: bool = False) -> Tra
         d["id"]   = track_id   # always use the caller-assigned id, not the cached one
         d["file"] = audio_path  # always use the current resolved path, not the cached one
 
-        # Phase 0 backfill: if cached analysis has no mixing_profile, compute it now
-        if d.get("mixing_profile") is None:
+        # Phase 0 backfill: run if mixing_profile is missing OR if stems are missing
+        # but caller wants them (no_stems=False). The latter handles the case where an
+        # old cache saved stems={vocals:"", ...} and mixing_profile was built without
+        # vocal data — we need to run Demucs then rebuild.
+        stem_paths_raw = d.get("stems", {})
+        stems_on_disk = all(
+            stem_paths_raw.get(k) and Path(stem_paths_raw[k]).exists()
+            for k in ("vocals", "drums", "bass", "other")
+        )
+        needs_backfill = d.get("mixing_profile") is None or (not no_stems and not stems_on_disk)
+
+        if needs_backfill:
             print(f"  [analyze] backfilling mixing_profile for {Path(audio_path).name}")
             try:
-                stem_paths_raw = d.get("stems", {})
                 stems_obj = None
-                if not no_stems and all(stem_paths_raw.get(k) for k in ("vocals", "drums", "bass", "other")):
-                    from schema import StemPaths as _SP
-                    stems_obj = _SP(**stem_paths_raw)
+                if not no_stems:
+                    if stems_on_disk:
+                        from schema import StemPaths as _SP
+                        stems_obj = _SP(**stem_paths_raw)
+                    else:
+                        # Stems missing — run Demucs now
+                        print(f"  [analyze] running Demucs for {Path(audio_path).name}")
+                        stems_obj = separate_stems(audio_path, cache_dir)
+                        import dataclasses as _dc
+                        d["stems"] = _dc.asdict(stems_obj)
                 mp = build_mixing_profile(
                     audio_path=audio_path,
                     bpm=d["bpm"],
@@ -817,7 +909,7 @@ def analyze_track(audio_path: str, track_id: str, no_stems: bool = False) -> Tra
                     title=d.get("title", Path(audio_path).stem),
                     key_camelot=d["key"]["camelot"],
                     duration_s=d["duration_s"],
-                    sections=d.get("sections", []),
+                    sections=[Section(**s) if isinstance(s, dict) else s for s in d.get("sections", [])],
                 )
                 import dataclasses as _dc
                 d["mixing_profile"] = _dc.asdict(mp)

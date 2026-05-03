@@ -118,7 +118,7 @@ class MixTrackRef:
 
 @dataclass
 class MixAction:
-    type: str  # play | fade_in | fade_out | eq | bass_swap | loop
+    type: str  # play | fade_in | fade_out | eq | gain | bass_swap | loop
     track: str
     # play
     at_bar: Optional[int] = None
@@ -127,11 +127,15 @@ class MixAction:
     start_bar: Optional[int] = None
     duration_bars: Optional[int] = None
     stems: Optional[dict[str, float]] = None
-    # eq
+    # eq — values 0.0–1.0 per band; duration_bars makes it a linear ramp
     bar: Optional[int] = None
     low: Optional[float] = None
     mid: Optional[float] = None
     high: Optional[float] = None
+    eq_duration_bars: Optional[int] = None  # if set, ramp from current to target over this many bars
+    # gain — channel volume separate from EQ; duration_bars makes it a ramp
+    # at_bar reused for gain start; volume 0.0–1.0 (1.0 = unity); duration_bars for ramp
+    volume: Optional[float] = None
     # bass_swap: outgoing=track, incoming gets bass restored at same bar
     incoming_track: Optional[str] = None
     # loop: repeat loop_bars of the source phrase loop_repeats times from start_bar

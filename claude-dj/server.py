@@ -75,7 +75,7 @@ _library     = Library(CACHE_DIR)
 _audio_store = AudioSessionStore()
 _dj_store    = DjSessionStore()
 _scan_store  = ScanJobStore()
-_bg_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="dj-bg")
+_bg_executor = ThreadPoolExecutor(max_workers=6, thread_name_prefix="dj-bg")
 _library.load()
 
 AUDIO_EXTS = {".mp3", ".wav", ".flac", ".aiff", ".aif", ".m4a", ".ogg"}
@@ -138,52 +138,66 @@ async def _run_scan(scan_id: str, folder: str) -> None:
 
         job.total = len(files)
         loop = asyncio.get_running_loop()
-        known, new_count, skipped = 0, 0, 0
 
-        for i, path in enumerate(files):
-            job.progress = i
-            try:
-                h = await loop.run_in_executor(_bg_executor, file_hash, path)
-                existing = _library.get(h)
-                if existing:
-                    existing.path = path
-                    _library.upsert(h, existing)
-                    known += 1
-                    continue
+        # Semaphore: cap concurrent Demucs processes to avoid OOM.
+        # Each Demucs run uses ~1.5–2 GB RAM; 3 parallel = ~5 GB peak on a 14-core M-series.
+        _sem = asyncio.Semaphore(3)
+        known_count = 0
+        new_count   = 0
+        skipped_count = 0
 
-                analysis = await loop.run_in_executor(
-                    _bg_executor, _analyze_track, path, f"lib_{h[:8]}", True,
-                )
-                entry = LibraryEntry(
-                    hash             = h,
-                    path             = path,
-                    title            = analysis.title,
-                    artist           = analysis.artist,
-                    bpm              = round(analysis.bpm, 1),
-                    key_camelot      = analysis.key.camelot,
-                    key_standard     = analysis.key.standard,
-                    energy           = analysis.energy_overall,
-                    duration_s       = round(analysis.duration_s, 1),
-                    energy_curve     = analysis.energy_curve_per_bar,
-                    cue_points       = [
-                        {"name": c.name, "bar": c.bar, "type": c.type}
-                        for c in analysis.cue_points
-                    ],
-                    first_downbeat_s = round(analysis.first_downbeat_s, 3),
-                    analyzed_at      = datetime.utcnow().isoformat(),
-                    loudness_dbfs    = analysis.loudness_dbfs,
-                )
-                _library.upsert(h, entry)
-                new_count += 1
-                job.new = new_count
-            except Exception as exc:
-                print(f"[scan] skipping {Path(path).name}: {exc}", flush=True)
-                skipped += 1
-                job.skipped = skipped
+        async def _process_one(path: str) -> None:
+            nonlocal known_count, new_count, skipped_count
+            async with _sem:
+                try:
+                    h        = await loop.run_in_executor(_bg_executor, file_hash, path)
+                    existing = _library.get(h)
+
+                    analysis = await loop.run_in_executor(
+                        _bg_executor, _analyze_track, path, f"lib_{h[:8]}", False,
+                    )
+                    job.progress += 1
+
+                    if existing:
+                        existing.path = path
+                        _library.upsert(h, existing)
+                        known_count += 1
+                        job.known = known_count
+                        return
+
+                    entry = LibraryEntry(
+                        hash             = h,
+                        path             = path,
+                        title            = analysis.title,
+                        artist           = analysis.artist,
+                        bpm              = round(analysis.bpm, 1),
+                        key_camelot      = analysis.key.camelot,
+                        key_standard     = analysis.key.standard,
+                        energy           = analysis.energy_overall,
+                        duration_s       = round(analysis.duration_s, 1),
+                        energy_curve     = analysis.energy_curve_per_bar,
+                        cue_points       = [
+                            {"name": c.name, "bar": c.bar, "type": c.type}
+                            for c in analysis.cue_points
+                        ],
+                        first_downbeat_s = round(analysis.first_downbeat_s, 3),
+                        analyzed_at      = datetime.utcnow().isoformat(),
+                        loudness_dbfs    = analysis.loudness_dbfs,
+                    )
+                    _library.upsert(h, entry)
+                    new_count += 1
+                    job.new = new_count
+                except Exception as exc:
+                    print(f"[scan] skipping {Path(path).name}: {exc}", flush=True)
+                    skipped_count += 1
+                    job.skipped = skipped_count
+                    job.progress += 1
+
+        await asyncio.gather(*(_process_one(p) for p in files))
 
         job.status   = "done"
         job.progress = len(files)
-        job.known    = known
+        job.known    = known_count
         job.new      = new_count
     except Exception as exc:
         import traceback

@@ -1,0 +1,126 @@
+{
+  "id": "ex_014",
+  "meta": {
+    "genre": "vocal_house",
+    "t1_bpm": 125.0,
+    "t2_bpm": 126.0,
+    "t1_camelot": "9A",
+    "t2_camelot": "9A",
+    "camelot_distance": 0,
+    "bpm_delta": 1.0,
+    "exit_section": "outro",
+    "overlap_bars": 16,
+    "technique": "blend",
+    "scenario": "single vocal (T1 only) \u2014 T1 vocal active in outro, T2 instrumental; gradual mid suppression timed to fade_in start, standard 16-bar window",
+    "source": "Honey Dijon - DJ Kicks 2016",
+    "t1_artist": "Hercules and Love Affair",
+    "t1_title": "Blind",
+    "t2_artist": "DJ Sprinkles",
+    "t2_title": "Grand Central Ballroom Mix"
+  },
+  "transition_arc": "T1's vocal (Antony Hegarty) continues through the outro, echoing and tailing into near-silence around bar 88. T2 is purely instrumental deep house. Because only T1 has a vocal, a standard 16-bar blend is viable \u2014 no need to compress the window. But T1's mids must be suppressed at the moment T2 fades in so T2's groove establishes without the vocal competing for attention. The suppression is gentler than a dual-vocal scenario (mid=0.35 vs 0.2) because there is no competing T2 vocal \u2014 T1's voice becoming a soft background texture is acceptable. Standard bass swap at bar 88 (midpoint of 80\u201396).",
+  "annotated_actions": [
+    {
+      "action": {
+        "type": "play",
+        "track": "T1",
+        "at_bar": 0,
+        "from_bar": 0
+      },
+      "why": "Standard entry."
+    },
+    {
+      "action": {
+        "type": "eq",
+        "track": "T1",
+        "bar": 72,
+        "low": 0.0,
+        "mid": 1.0,
+        "high": 1.0
+      },
+      "t1_state": "T1 bar 72: 8 bars before T2 fade_in at bar 80. Vocal present (presence=6), groove still running, rms=0.34",
+      "why": "Bass pre-cut 8 bars before T2 enters. Mid stays at 1.0 \u2014 T1 should sound complete during these 8 bars. The mid suppression fires at bar 80 (when T2 actually arrives), not here."
+    },
+    {
+      "action": {
+        "type": "eq",
+        "track": "T1",
+        "bar": 80,
+        "low": 0.0,
+        "mid": 0.35,
+        "high": 0.9
+      },
+      "t1_state": "T1 bar 80: vocal active (presence=6), drums=0.22, harmonic=0.30, rms=0.28",
+      "t2_state": "T2 bar 16: T2 instrumental groove entering \u2014 no competing vocal",
+      "why": "Fires simultaneously with T2 fade_in. mid=0.35 (\u2248\u22125 dB broadband) \u2014 gentler than dual-vocal suppression because T2 has no competing vocal. T1's voice drops to a background murmur while T2's instrumental groove rises. The audience consciously hears T2 establishing; T1's voice becomes an atmospheric texture they're not attending to. high=0.9 retains T1's hi-hat character slightly (warmer than 0.8 because there is no hi-hat collision concern with one vocal track)."
+    },
+    {
+      "action": {
+        "type": "eq",
+        "track": "T2",
+        "bar": 80,
+        "low": 0.0,
+        "mid": 1.0,
+        "high": 1.0
+      },
+      "why": "Kill T2 bass at fade start \u2014 prevents dual basslines during blend. EQ is persistent; will be restored at bass_swap point."
+    },
+    {
+      "action": {
+        "type": "fade_in",
+        "track": "T2",
+        "start_bar": 80,
+        "duration_bars": 16,
+        "from_bar": 16,
+        "stems": {
+          "drums": 0.8,
+          "bass": 0.0,
+          "other": 0.6
+        }
+      },
+      "t2_state": "T2 bar 16: instrumental intro, kick establishing, drums=0.35, harmonic=0.15",
+      "why": "16-bar standard window. drums:0.7 (not 0.8) \u2014 slightly reduced because T1 still has an active groove with hats; combined percussion density would be high. other:0.6 \u2014 T2's pads are instrumental and same-key (9A=9A), zero harmonic clash, safe at 0.6. from_bar=16 skips T2's first 16 bars of near-silence. vocals:0.0 is a formality here since T2 is instrumental, but always set it explicitly. stems={drums:0.8, bass:0.0, other:0.6} \u2014 T2 enters with 80% drums, no bass (held for bass_swap), 60% atmosphere."
+    },
+    {
+      "action": {
+        "type": "bass_swap",
+        "track": "T1",
+        "at_bar": 88,
+        "incoming_track": "T2"
+      },
+      "t1_state": "T1 bar 88: vocal presence dropping (presence=3, tail phase), drums=0.12, rms=0.18",
+      "t2_state": "T2 bar 24 (from_bar=16, 8 bars elapsed): bass about to enter at bar 32",
+      "why": "Standard midpoint (80 + 8 = 88). T1's bass was cut via eq at bar 72. At mid=0.35 and 50% fade gain, T1's vocal is at roughly 15% of its original perceptual loudness \u2014 the ear has migrated its attention to T2's emerging groove. The swap releases T2's bass stem formally."
+    },
+    {
+      "action": {
+        "type": "eq",
+        "track": "T2",
+        "bar": 88,
+        "low": 1.0,
+        "mid": 1.0,
+        "high": 1.0
+      },
+      "why": "Restore T2 bass at bass_swap point \u2014 T1 bass is now HPF-cut, T2 bass can come in."
+    },
+    {
+      "action": {
+        "type": "fade_out",
+        "track": "T1",
+        "start_bar": 80,
+        "duration_bars": 16
+      },
+      "why": "Simultaneous with T2 fade_in. Standard 16-bar fade_out. T1's mid-suppressed vocal fades gracefully. By bar 88, T1 is at 50% gain with mid=0.35 \u2014 audible only as a faint harmonic ghost."
+    },
+    {
+      "action": {
+        "type": "play",
+        "track": "T2",
+        "at_bar": 96,
+        "from_bar": 32
+      },
+      "t2_state": "T2 bar 32: full instrumental groove, kick+bass+pads at full level, RMS 0.52",
+      "why": "T2 full mix fires. T1 gone. from_bar = fade_in.from_bar(16) + fade_in.duration_bars(16) = 32. T2's groove, teased through the 16-bar fade, arrives without any competing vocal. Clean handoff."
+    }
+  ]
+}

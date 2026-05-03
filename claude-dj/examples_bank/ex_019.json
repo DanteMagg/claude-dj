@@ -1,0 +1,139 @@
+{
+  "id": "ex_019",
+  "meta": {
+    "genre": "tech_house",
+    "t1_bpm": 128.0,
+    "t2_bpm": 128.0,
+    "t1_camelot": "5A",
+    "t2_camelot": "7A",
+    "camelot_distance": 2,
+    "bpm_delta": 0.0,
+    "exit_section": "outro",
+    "overlap_bars": 16,
+    "technique": "blend",
+    "scenario": "Camelot distance 2 \u2014 borderline harmonic move; T2 mids suppressed during fade_in, restored at blend end to prevent EQ bleeding into T2's run",
+    "source": "Drumcode Radio Live \u2014 Adam Beyer 2020",
+    "t1_artist": "Joel Mull",
+    "t1_title": "Breathe",
+    "t2_artist": "Adam Beyer",
+    "t2_title": "Your Mind"
+  },
+  "transition_arc": "5A (D minor) \u2192 7A (E minor): a +2 step on the Camelot wheel. The two keys share only 5 of 7 diatonic notes \u2014 close enough to blend with management, but two shared dissonances (the 4th and 7th scale degrees) will produce audible harmonic tension if T2's chord content is fully present during the overlap. The solution: suppress T2's mid-range (other:0.3, eq mid=0.5) during the 16-bar fade window, dramatically reducing T2's chord information while preserving its rhythmic punch. After the blend ends (at bar 96), restore T2's EQ to unity \u2014 this is critical because EQ is persistent and T2 will play for many minutes after the transition. A missing restore at bar 96 means T2 plays the rest of its run with suppressed mids.",
+  "annotated_actions": [
+    {
+      "action": {
+        "type": "play",
+        "track": "T1",
+        "at_bar": 0,
+        "from_bar": 0
+      },
+      "t1_state": "T1 bar 0: full tech house groove, kick+bass+synth stabs, RMS 0.60",
+      "why": "Standard entry."
+    },
+    {
+      "action": {
+        "type": "eq",
+        "track": "T1",
+        "bar": 72,
+        "low": 0.0,
+        "mid": 1.0,
+        "high": 1.0
+      },
+      "t1_state": "T1 bar 72: 8 bars before T2 fade_in at bar 80. Outro running, drums=0.40, rms=0.38",
+      "why": "Standard bass pre-cut 8 bars before T2 enters."
+    },
+    {
+      "action": {
+        "type": "eq",
+        "track": "T2",
+        "bar": 80,
+        "low": 1.0,
+        "mid": 0.5,
+        "high": 1.0
+      },
+      "t1_state": "T1 bar 80: outro, drums=0.30, harmonic=0.25, rms=0.30",
+      "t2_state": "T2 bar 0: fade_in starting \u2014 chord stabs present in intro, harmonic=0.30",
+      "why": "Suppress T2's mids to 0.5 (\u2248\u22123 dB broadband) at the moment T2 begins fading in. Camelot distance 2 means T2's chord content contains two pitches that create mild dissonance against T1's key. Reducing mid to 0.5 cuts the perceived intensity of T2's harmonic material by ~50%, reducing the clash from 'clearly audible dissonance' to 'slightly unusual texture.' low=1.0 because T2's bass is held at 0.0 via fade_in stems anyway \u2014 the bass_swap handles it. CRITICAL: this EQ MUST be restored at blend end (bar 96). EQ is persistent \u2014 if not restored, T2 plays with suppressed mids for its entire remaining run."
+    },
+    {
+      "action": {
+        "type": "eq",
+        "track": "T2",
+        "bar": 80,
+        "low": 0.0,
+        "mid": 1.0,
+        "high": 1.0
+      },
+      "why": "Kill T2 bass at fade start \u2014 prevents dual basslines during blend. EQ is persistent; will be restored at bass_swap point."
+    },
+    {
+      "action": {
+        "type": "fade_in",
+        "track": "T2",
+        "start_bar": 80,
+        "duration_bars": 16,
+        "from_bar": 0,
+        "stems": {
+          "drums": 0.8,
+          "bass": 0.0,
+          "other": 0.6
+        }
+      },
+      "t2_state": "T2 bar 0: tech house intro, kick+hi-hats + chord stabs (distance 2 from T1 key)",
+      "why": "other:0.3 \u2014 Camelot distance 2 means T2's chord stabs are audibly incompatible with T1. At 0.3, the chord content is present enough to establish T2's character but low enough that the dissonance is masked by T1's still-dominant harmonic frame. Combined with eq(mid=0.5), T2's total harmonic exposure during the overlap is roughly 15% of its normal level \u2014 the audience hears rhythm and hint-of-color, not a clashing chord. drums:0.8 \u2014 kicks are neutral, always safe at full level. stems={drums:0.8, bass:0.0, other:0.6} \u2014 T2 enters with 80% drums, no bass (held for bass_swap), 60% atmosphere."
+    },
+    {
+      "action": {
+        "type": "bass_swap",
+        "track": "T1",
+        "at_bar": 88,
+        "incoming_track": "T2"
+      },
+      "t1_state": "T1 bar 88: outro midpoint, drums=0.18, harmonic=0.12, rms=0.20",
+      "t2_state": "T2 bar 8 (fade_in 8 bars elapsed): bass entering at bar 16",
+      "why": "Standard midpoint (80 + 8 = 88). T1 bass removed since bar 72. Swap releases T2's bass stem."
+    },
+    {
+      "action": {
+        "type": "eq",
+        "track": "T2",
+        "bar": 88,
+        "low": 1.0,
+        "mid": 1.0,
+        "high": 1.0
+      },
+      "why": "Restore T2 bass at bass_swap point \u2014 T1 bass is now HPF-cut, T2 bass can come in."
+    },
+    {
+      "action": {
+        "type": "fade_out",
+        "track": "T1",
+        "start_bar": 80,
+        "duration_bars": 16
+      },
+      "why": "Simultaneous with T2 fade_in. Standard 16-bar fade_out."
+    },
+    {
+      "action": {
+        "type": "play",
+        "track": "T2",
+        "at_bar": 96,
+        "from_bar": 16
+      },
+      "t2_state": "T2 bar 16: groove establishing, kick+bass+chord stabs now in key context (T1 is gone, no clash)",
+      "why": "T2 full mix fires. T1 is gone \u2014 the harmonic clash is over. from_bar = fade_in.from_bar(0) + fade_in.duration_bars(16) = 16."
+    },
+    {
+      "action": {
+        "type": "eq",
+        "track": "T2",
+        "bar": 96,
+        "low": 1.0,
+        "mid": 1.0,
+        "high": 1.0
+      },
+      "t2_state": "T2 bar 16: now the sole track, playing at full mix. Mid suppression served its purpose.",
+      "why": "MANDATORY RESTORE. The eq(T2, mid=0.5) fired at bar 80 is persistent \u2014 without this restore, T2's mids would remain suppressed for its entire remaining run (potentially 5\u201310 minutes). This restore fires at the exact bar as the play action (bar 96), simultaneously re-enabling T2's full frequency content as it takes over the mix. The timing is: at bar 96, T1 is gone AND T2's EQ is restored to unity \u2014 T2 sounds full and natural from this point on."
+    }
+  ]
+}

@@ -152,22 +152,43 @@ Fallback when any check fails: **8-bar percussion-window cut** (universal damage
 
 **Use 3 — Pre-drop tension:** Loop last 8 bars of a build (1 repeat only) to amplify anticipation.
 
+### Two loop strategies
+
+**Strategy A — loop T1 to buy runway:**
+Loop a clean section of T1 to extend its playtime while T2 fades in underneath.
+Use when T1's exit zone is short or the mix-out cue arrives before T2 is ready.
+
+**Strategy B — fade in a T2 loop:**
+Start T2 as a looped texture while fading it in. T2 enters as a repeated phrase
+(minimal, rhythmic), builds presence over the loop repeats, then breaks the loop and
+plays freely. The loop break is the "moment" — T2 snaps into full mix.
+Pattern:
+```
+eq(T2, bar=<fade_start>, low=0.0)
+loop(T2, start_bar=<fade_start>, loop_bars=4, loop_repeats=3)
+fade_in(T2, start_bar=<fade_start>, duration_bars=12, from_bar=<T2_loop_bar>)
+bass_swap(T1, at_bar=<fade_start+8>, incoming_track=T2)
+eq(T2, bar=<fade_start+8>, low=1.0)
+fade_out(T1, start_bar=<fade_start>, duration_bars=12)
+play(T2, at_bar=<fade_start+12>, from_bar=<T2_loop_bar+12>)
+```
+The `play(T2)` after fade_in completion breaks the loop — T2 resumes from where it
+would be without the loop (`from_bar + duration_bars`).
+
 ### Never loop
 
-- Melodic or chord stab phrases (`h > 0.1` in zone = harmonic content present)
-- Vocal phrases (any section with `vocals.presence >= 5`)
-- Main groove with full bassline (max 1 repeat)
+- Active vocal phrases (`vocals > 0.20` in zone data)
 - Intro sections (loop of unresolved material = dead end)
 
 ### Technical rules
 
-1. `start_bar` must be a multiple of 8.
-2. Valid `loop_bars` values: 2, 4, 8, 16. (2 = tech house short loop; 8 = standard house)
-3. `loop_repeats` 1–3. One = standard. Beyond three loses the effect.
-4. After loop: track resumes from `start_bar + loop_bars * loop_repeats`. Plan `fade_out` accordingly.
-5. Do NOT place `loop` and `fade_out` at the same bar for the same track.
-6. One loop per transition maximum.
-7. Do not loop consecutive transitions.
+1. `start_bar` for T1 loops must be a bar with `drums > 0.25` and `vocals < 0.20`.
+2. For T2 loops: use a T2 section available in T2's loop candidates (zone hints show these).
+3. Valid `loop_bars` values: 2, 4, 8, 16. (4 = tech house short loop; 8 = standard house)
+4. `loop_repeats` 1–4. One = standard. Beyond four loses the effect.
+5. After loop: track resumes from `start_bar + loop_bars * loop_repeats`. Plan accordingly.
+6. Do NOT place `loop` and `fade_out` at the same bar for the same track.
+7. One loop per transition maximum (either T1 or T2, not both).
 
 ---
 
@@ -200,12 +221,23 @@ Linear gain 1.0→0.0 over `duration_bars`. Track is silent from `start_bar + du
 Brings T2 into the mix over `duration_bars` with per-stem volume control.
 
 ```json
-{"type": "fade_in", "track": "T2", "start_bar": 72, "duration_bars": 16, "from_bar": 8}
+{
+  "type": "fade_in",
+  "track": "T2",
+  "start_bar": 72,
+  "duration_bars": 16,
+  "from_bar": 8,
+  "stems": {"drums": 0.8, "bass": 0.0, "other": 0.6}
+}
 ```
 
-- `bass` stem: **always 0.0 during fade_in** — use `bass_swap` for bass handover.
-- `from_bar`: first T2 bar where `drums > 0.15` or `harmonic > 0.1`.
-- Do NOT include a `stems` field if using default full-mix entry.
+- **`stems` is the primary T2 entry mechanism** — always include it on blend transitions.
+  - `drums`: 0.7–0.9 — kick/hi-hat arrives first to lock rhythm.
+  - `bass`: **always 0.0** — bass handover happens at `bass_swap`, not here.
+  - `other`: 0.5–0.7 — pads/atmosphere underneath.
+  - Omit `vocals` key to keep T2 lead vocal absent until after bass swap.
+- `from_bar`: first T2 bar where `drums > 0.15` (use zone data — kick must be present).
+- Stems let T2 enter as rhythm + texture only, no clashing bass or vocals.
 
 ### 14.4 `bass_swap`
 
@@ -221,21 +253,41 @@ Removes T1 bass and releases T2 bass. Instantaneous at a single bar. `incoming_t
 
 ### 14.5 `eq`
 
-Sets frequency band volumes at a specific bar. **PERSISTENT** — holds until explicitly restored.
+Sets frequency band volumes at a specific bar. Supports smooth ramping via `eq_duration_bars`.
 
 ```json
-{"type": "eq", "track": "T1", "bar": 72, "low": 0.0, "mid": 1.0, "high": 1.0}
+{"type": "eq", "track": "T1", "bar": 72, "low": 0.0, "mid": 0.5, "high": 1.0}
+```
+
+With smooth ramp (like turning a knob over 4 bars):
+```json
+{"type": "eq", "track": "T1", "bar": 72, "low": 0.0, "mid": 0.5, "high": 1.0, "eq_duration_bars": 4}
 ```
 
 - `low`: 0.0=kill bass, 1.0=unity. Never run two tracks with `low > 0.5` simultaneously.
 - `mid`: attenuation for harmonic/vocal clash management.
 - `high`: hi-hat management. Rarely needed.
-- Every non-unity `eq` MUST have a matching restore before blend end.
+- `eq_duration_bars`: if set, the EQ ramps linearly from current value to target over this many bars — **use this for smooth DJ-style knob turns**. Without it, eq snaps instantly.
+- **PERSISTENT** — holds until explicitly restored.
+- Every non-unity `eq` on T1 during a blend does NOT need restore — T1 is fading out.
 
-Standard pre-cut (every blend):
+Standard pre-cut (every blend — ramp over 4 bars for smoothness):
 ```json
-{"type": "eq", "track": "T1", "bar": <fade_in.start_bar - 8>, "low": 0.0, "mid": 1.0, "high": 1.0}
+{"type": "eq", "track": "T1", "bar": <fade_in.start_bar - 8>, "low": 0.0, "mid": 1.0, "high": 1.0, "eq_duration_bars": 4}
 ```
+
+### 14.5b `gain`
+
+Independent channel volume (0–1), separate from EQ. Supports ramping.
+
+```json
+{"type": "gain", "track": "T1", "at_bar": 80, "volume": 0.6, "duration_bars": 8}
+```
+
+- `volume`: 0.0=silence, 1.0=unity (default). Values between 0 and 1 attenuate.
+- `duration_bars`: ramp duration. Without it, volume snaps instantly.
+- Use when you need subtle level riding — e.g. gently duck T1 as T2's energy builds.
+- Combine with `fade_out` for a pre-fade gain reduction before the actual fade.
 
 ### 14.6 `loop`
 

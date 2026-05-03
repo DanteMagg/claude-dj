@@ -9,13 +9,20 @@ Pipeline per pair:
   4. normalize()
   5. Post-validate the mix script against a checklist
   6. Write per-pair log + summary report
+  7. (optional) Spot-render the transition window to a short WAV for listening
 
 Usage:
-  cd /Users/DantesFolder/Claude\ DJ
-  python3 scripts/simulate_transitions.py
+  cd "/Users/DantesFolder/Claude DJ"
+  python3 scripts/simulate_transitions.py [--spot-render] [--pairs N]
+
+  --spot-render   Render ±8 bars around each transition window to a WAV file.
+                  This is the correct way to evaluate audio quality; script
+                  validation alone cannot catch rendering or gain-ramp bugs.
+  --pairs N       Override MAX_PAIRS (default 12).
 
 Output:
   simulate_runs/<timestamp>/  — one .log per pair + summary.txt
+  simulate_runs/<timestamp>/spot_renders/  — short WAV files (with --spot-render)
 """
 from __future__ import annotations
 
@@ -56,6 +63,16 @@ def _load_env() -> None:
 
 _load_env()
 
+# ── CLI args ─────────────────────────────────────────────────────────────────
+
+import argparse as _argparse
+_ap = _argparse.ArgumentParser(add_help=True)
+_ap.add_argument("--spot-render", action="store_true",
+                 help="Render ±8 bars around each transition window to WAV")
+_ap.add_argument("--pairs", type=int, default=None,
+                 help="Override MAX_PAIRS")
+_CLI = _ap.parse_args()
+
 # ── Constants ────────────────────────────────────────────────────────────────
 
 MODEL        = "claude-haiku-4-5-20251001"   # cheap for simulation; swap to sonnet for fidelity
@@ -65,8 +82,8 @@ OUT_DIR      = PROJECT_ROOT / "simulate_runs" / datetime.now().strftime("%Y%m%d_
 
 BPM_LOW  = 118
 BPM_HIGH = 135
-MAX_PAIRS    = 12   # cap so the run stays within budget
-PAIRS_PER_DIST = 6  # how many dist=0 and dist=1 pairs to include each
+MAX_PAIRS    = _CLI.pairs if _CLI.pairs else 12
+PAIRS_PER_BUCKET = max(1, MAX_PAIRS // 4)
 
 # ── Logging setup ────────────────────────────────────────────────────────────
 
@@ -170,10 +187,12 @@ def _build_pairs(tracks: list[TrackAnalysis]) -> list[Pair]:
             ))
 
     pairs.sort(key=lambda p: (p.camelot_dist, p.bpm_delta))
-    # Take equal slices of dist=0 and dist=1 for coverage of harmonic transitions
-    dist0 = [p for p in pairs if p.camelot_dist == 0][:PAIRS_PER_DIST]
-    dist1 = [p for p in pairs if p.camelot_dist == 1][:PAIRS_PER_DIST]
-    selected = dist0 + dist1
+    # 4-bucket balanced coverage: (dist=0|1) × (same-BPM|cross-BPM)
+    d0_same  = [p for p in pairs if p.camelot_dist == 0 and p.bpm_delta == 0][:PAIRS_PER_BUCKET]
+    d0_cross = [p for p in pairs if p.camelot_dist == 0 and p.bpm_delta > 0][:PAIRS_PER_BUCKET]
+    d1_same  = [p for p in pairs if p.camelot_dist == 1 and p.bpm_delta == 0][:PAIRS_PER_BUCKET]
+    d1_cross = [p for p in pairs if p.camelot_dist == 1 and p.bpm_delta > 0][:PAIRS_PER_BUCKET]
+    selected = d0_same + d0_cross + d1_same + d1_cross
     return selected[:MAX_PAIRS]
 
 
@@ -339,6 +358,86 @@ def validate_script(script: MixScript) -> list[ValidationIssue]:
     return issues
 
 
+# ── Spot-render ──────────────────────────────────────────────────────────────
+
+def spot_render(
+    pair: "Pair",
+    script: MixScript,
+    out_path: Path,
+    log: logging.Logger,
+) -> None:
+    """
+    Render ±8 bars around the transition window to a short WAV.
+    This is the primary tool for evaluating audio quality; script
+    validation alone cannot catch bugs in the gain ramp, EQ application,
+    or stem mixing.
+
+    Window: (fade_in.start_bar - 8) to (play(T2).at_bar + 8), clamped to [0, ∞).
+    Both tracks are loaded and time-stretched to ref_bpm (median of T1/T2).
+    """
+    try:
+        from executor import bars_to_ms, load_track, time_stretch, render_chunk, _apply_soft_limiter
+        from pydub import AudioSegment
+        import numpy as np
+
+        ref_bpm = float(np.median([pair.t1.bpm, pair.t2.bpm]))
+
+        # Determine the render window
+        fade_in_bar  = next(
+            (a.start_bar or 0 for a in script.actions if a.type == "fade_in"), 0
+        )
+        play_t2_bar  = next(
+            (a.at_bar or 0 for a in script.actions if a.type == "play" and a.track == "T2"), fade_in_bar + 32
+        )
+        fade_out_bar = next(
+            (a.start_bar or 0 for a in script.actions if a.type == "fade_out"), fade_in_bar
+        )
+        # Include 8 bars of T1 before the fade starts and 8 bars of T2 after play fires
+        render_start_bar = max(0, min(fade_in_bar, fade_out_bar) - 8)
+        render_end_bar   = play_t2_bar + 8
+
+        start_ms = bars_to_ms(render_start_bar, ref_bpm)
+        end_ms   = bars_to_ms(render_end_bar,   ref_bpm)
+        total_ms = end_ms - start_ms
+
+        log.info(
+            "Spot-render: bars %d–%d  (%.1fs)  ref_bpm=%.1f",
+            render_start_bar, render_end_bar, total_ms / 1000, ref_bpm,
+        )
+
+        # Load and time-stretch tracks
+        def _load(ta: "TrackAnalysis") -> AudioSegment:
+            seg = load_track(ta.file)
+            fdb = int(ta.first_downbeat_s * 1000)
+            if fdb > 0:
+                seg = seg[fdb:]
+            return time_stretch(seg, ta.bpm, ref_bpm)
+
+        loaded = {
+            "T1": _load(pair.t1),
+            "T2": _load(pair.t2),
+        }
+        target_rate = loaded["T1"].frame_rate
+        for tid in loaded:
+            if loaded[tid].frame_rate != target_rate:
+                loaded[tid] = loaded[tid].set_frame_rate(target_rate)
+
+        # Render in 1-bar chunks and concatenate
+        chunk_ms  = bars_to_ms(1, ref_bpm)
+        canvas    = AudioSegment.silent(duration=0, frame_rate=target_rate)
+        for bar in range(render_start_bar, render_end_bar):
+            bar_ms = bars_to_ms(bar, ref_bpm)
+            chunk  = render_chunk(script, loaded, {}, ref_bpm, bar_ms, chunk_ms)
+            canvas = canvas + chunk
+
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        canvas.export(str(out_path), format="wav")
+        log.info("Spot-render saved: %s  (%.1fs)", out_path.name, len(canvas) / 1000)
+
+    except Exception as exc:
+        log.warning("Spot-render failed: %s", exc)
+
+
 # ── Per-pair runner ──────────────────────────────────────────────────────────
 
 @dataclass
@@ -436,6 +535,15 @@ def run_pair(pair: Pair, log: logging.Logger) -> PairResult:
                     iss.severity, log.info
                 )
                 lvl("[%s] %s: %s", iss.severity, iss.rule, iss.detail)
+
+        # ── Spot-render (optional) ─────────────────────────────────────────
+        if _CLI.spot_render and norm_script is not None:
+            log.info("--- Spot-render ---")
+            render_dir = OUT_DIR / "spot_renders"
+            t1_stem = Path(pair.t1.file).stem[:20]
+            t2_stem = Path(pair.t2.file).stem[:20]
+            safe_name  = f"{t1_stem}__{t2_stem}.wav"
+            spot_render(pair, norm_script, render_dir / safe_name, log)
 
     except Exception as exc:
         error = traceback.format_exc()
