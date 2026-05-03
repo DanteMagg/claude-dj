@@ -36,6 +36,7 @@ def normalize(script: MixScript) -> MixScript:
     actions = _inject_play_for_orphaned_fade_in(actions)
     actions = _inject_bass_swap_if_missing(actions)
     actions = _inject_fade_out_if_missing(actions, script.tracks)
+    actions = _ramp_stems_release(actions)
     actions = _restore_incoming_eq(actions)
 
     added   = [a for a in actions if a not in before]
@@ -508,6 +509,56 @@ def _snap_fade_in_anchor(actions: list[MixAction]) -> list[MixAction]:
         result = new_result
 
     return result
+
+
+def _ramp_stems_release(actions: list[MixAction]) -> list[MixAction]:
+    """
+    When fade_in has suppressed vocals (stems.vocals < 0.3), inject a mid EQ dip
+    in the 4 bars before fade-end and a matching bloom at fade-end. This prevents
+    vocals slamming in at full volume the instant stems constraints lift.
+
+    Dip  (bar = fade_end-4): ramps mid→0.0 over 4 bars (mids silent as fade ends)
+    Bloom (bar = fade_end):  ramps mid→1.0 over 4 bars (vocals swell in naturally)
+    """
+    RAMP = 4
+    injected: list[MixAction] = []
+
+    for fi in [a for a in actions if a.type == "fade_in" and a.stems]:
+        if fi.stems.get("vocals", 1.0) >= 0.3:
+            continue
+
+        fade_end = (fi.start_bar or 0) + (fi.duration_bars or 0)
+        tid = fi.track
+
+        # Don't inject if Claude already placed an EQ mid-action near the handoff
+        already = any(
+            a.type == "eq" and a.track == tid
+            and a.mid is not None
+            and (a.bar or 0) >= fade_end - RAMP
+            for a in actions
+        )
+        if already:
+            continue
+
+        ramp_start = fade_end - RAMP
+        msg = f"stems-release EQ ramp for {tid}: mid dip bar {ramp_start}, bloom bar {fade_end}"
+        logger.debug("NORMALIZER INJECT: %s", msg)
+        print(f"[normalizer] {msg}")
+
+        # Dip: mid arrives at 0.0 just as stems constraints lift at fade_end
+        injected.append(MixAction(
+            type="eq", track=tid, bar=ramp_start,
+            low=1.0, mid=0.0, high=0.7, eq_duration_bars=RAMP,
+        ))
+        # Bloom: mid and high swell back to unity — vocals come in naturally
+        injected.append(MixAction(
+            type="eq", track=tid, bar=fade_end,
+            low=1.0, mid=1.0, high=1.0, eq_duration_bars=RAMP,
+        ))
+
+    if not injected:
+        return actions
+    return sorted(actions + injected, key=_action_sort_key)
 
 
 def _inject_bass_swap_if_missing(actions: list[MixAction]) -> list[MixAction]:

@@ -115,6 +115,58 @@ def test_fade_in_snapped_to_phrase_boundary():
     assert fi.start_bar % 8 == 0
 
 
+# ── Stems-release ramp ────────────────────────────────────────────────────
+
+
+def test_stems_release_ramp_injected_when_vocals_suppressed():
+    s = _script([
+        MixAction(type="play",     track="T1", at_bar=0,  from_bar=0),
+        MixAction(type="fade_out", track="T1", start_bar=32, duration_bars=16),
+        MixAction(type="fade_in",  track="T2", start_bar=32, duration_bars=16,
+                  stems={"drums": 0.75, "bass": 0.0, "other": 0.6, "vocals": 0.0}),
+    ])
+    result = normalize(s)
+    fade_end = 32 + 16  # 48
+    # Expect a dip (mid=0.0) 4 bars before fade_end and a bloom (mid=1.0) at fade_end
+    eq_actions = [a for a in result.actions if a.type == "eq" and a.track == "T2"]
+    dip  = next((a for a in eq_actions if (a.bar or 0) == fade_end - 4 and a.mid == 0.0), None)
+    bloom = next((a for a in eq_actions if (a.bar or 0) == fade_end  and a.mid == 1.0), None)
+    assert dip  is not None, "expected mid dip 4 bars before fade_end"
+    assert bloom is not None, "expected mid bloom at fade_end"
+    assert dip.eq_duration_bars  == 4
+    assert bloom.eq_duration_bars == 4
+
+
+def test_stems_release_ramp_not_injected_when_vocals_present():
+    s = _script([
+        MixAction(type="play",     track="T1", at_bar=0,  from_bar=0),
+        MixAction(type="fade_out", track="T1", start_bar=32, duration_bars=16),
+        MixAction(type="fade_in",  track="T2", start_bar=32, duration_bars=16,
+                  stems={"drums": 0.75, "bass": 0.0, "other": 0.6, "vocals": 0.8}),
+    ])
+    result = normalize(s)
+    fade_end = 48
+    eq_T2 = [a for a in result.actions if a.type == "eq" and a.track == "T2"
+             and (a.bar or 0) in (fade_end - 4, fade_end) and a.mid == 0.0]
+    assert eq_T2 == [], "should not inject ramp when vocals not suppressed"
+
+
+def test_stems_release_ramp_not_injected_when_eq_already_present():
+    s = _script([
+        MixAction(type="play",     track="T1", at_bar=0,  from_bar=0),
+        MixAction(type="fade_out", track="T1", start_bar=32, duration_bars=16),
+        MixAction(type="fade_in",  track="T2", start_bar=32, duration_bars=16,
+                  stems={"drums": 0.75, "bass": 0.0, "other": 0.6, "vocals": 0.0}),
+        # Claude already placed an EQ near the handoff
+        MixAction(type="eq", track="T2", bar=46, mid=0.3, eq_duration_bars=4),
+    ])
+    result = normalize(s)
+    # Should not inject a second dip — existing eq covers the window
+    dips = [a for a in result.actions if a.type == "eq" and a.track == "T2"
+            and (a.bar or 0) == 44 and a.mid == 0.0]
+    assert dips == []
+
+
 def test_bass_swap_offset_preserved_after_anchor_snap():
     # fade_in at bar 20 → snaps to 16 (delta=-4)
     # bass_swap was 8 bars after fade_in (bar 28) → should be 8 bars after snapped (bar 24)
