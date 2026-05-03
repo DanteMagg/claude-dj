@@ -431,13 +431,38 @@ def _restore_incoming_eq(actions: list[MixAction]) -> list[MixAction]:
 
 
 def _snap_bass_swap_bars(actions: list[MixAction]) -> list[MixAction]:
-    """Snap every bass_swap.at_bar to the nearest multiple of 8, co-snapping paired bass restores."""
+    """
+    Snap every bass_swap.at_bar to a phrase-aligned position inside the fade window.
+
+    Simple nearest-multiple-of-8 rounding can land the swap at the very start of the
+    blend (e.g. round(52/8)*8 = 48 via banker's rounding when fade starts at 48).
+    That creates a full-window bass strip.  Instead: when the naive snap would land at
+    or before the fade_in start, recalculate to the phrase-aligned midpoint of the
+    fade window so the swap fires in the second half of the blend.
+    """
+    # Pre-compute each incoming track's fade window so we can avoid the start edge.
+    fade_windows: dict[str, tuple[int, int]] = {}
+    for a in actions:
+        if a.type == "fade_in":
+            fi_start = a.start_bar or 0
+            fi_end   = fi_start + (a.duration_bars or DURATION_PREFERRED_MIN)
+            fade_windows[a.track] = (fi_start, fi_end)
+
     # Pass 1: snap bass_swaps, record (incoming_track, old_bar) -> snapped_bar for any moves
     snap_map: dict[tuple[str, int], int] = {}
     result = []
     for a in actions:
         if a.type == "bass_swap" and a.at_bar is not None:
             snapped = round(a.at_bar / PHRASE) * PHRASE
+
+            # Guard: don't land at or before the fade_in start (no-bass for the whole blend).
+            if a.incoming_track in fade_windows:
+                fi_start, fi_end = fade_windows[a.incoming_track]
+                if snapped <= fi_start and fi_end > fi_start + PHRASE:
+                    mid        = fi_start + (fi_end - fi_start) // 2
+                    mid_phrase = (mid // PHRASE) * PHRASE
+                    snapped    = max(fi_start + PHRASE, min(mid_phrase, fi_end - PHRASE))
+
             if snapped != a.at_bar:
                 msg = f"snapped bass_swap({a.track}) at_bar {a.at_bar}→{snapped} (phrase alignment)"
                 logger.debug("NORMALIZER FIX: %s", msg)

@@ -147,12 +147,25 @@ def _score_example(
     if actual_camelot_dist <= 1 and ex_technique == "cut":
         score += 0.5  # penalize cut examples for compatible keys
 
-    # Short track remaining → loop_blend examples become relevant
+    # Loop-blend scenarios — heavily boost loop examples so they surface despite Camelot distance
     t1_bar_grid = getattr(t1, "bar_grid", None)
-    t1_bars = getattr(t1_bar_grid, "n_bars", None)
-    t1_exit = window.get("t1_exit_bar", 64)
-    if t1_bars is not None and (t1_bars - t1_exit) < 20 and ex_technique == "loop_blend":
-        score -= 0.4  # T1 has short outro → loop examples very relevant
+    t1_bars     = getattr(t1_bar_grid, "n_bars", None)
+    t1_exit     = window.get("t1_exit_bar", 64)
+    t1_short_runway = t1_bars is not None and (t1_bars - t1_exit) < 20
+    # Detect peak-hold scenario: T1 exits hot, T2 has clean percussion intro
+    t2_enter_bar = window.get("t2_enter_bar", 0)
+    t2_zone_hint = window.get("t2_zone", [])  # populated when available
+    # Approximate peak-hold from energy metadata: T2 energy present but T1 is high energy
+    t1_energy = getattr(t1, "energy_overall", 5)
+    t2_energy = getattr(t2, "energy_overall", 5)
+    t1_high_exit = t1_energy >= 5  # T1 exits hot
+    if ex_technique == "loop_blend":
+        if t1_short_runway:
+            score -= 1.0  # strong boost — loop is the right tool for short runway
+        elif t1_high_exit and window_style == "blend":
+            score -= 0.7  # peak-hold scenario: loop adds character to a hot-exit blend
+        else:
+            score -= 0.2  # general mild boost so loops get occasional exposure
 
     # Exit section match
     if window_style == "blend" and ex_exit in ("groove", "intro"):
@@ -836,6 +849,7 @@ def _format_plan_prompt(
     t2_zone: list[dict],
     window: dict,
     concept: dict | None = None,
+    examples: list[dict] | None = None,
 ) -> str:
     situation = _format_situation_summary(t1, t2, window, t2_zone)
 
@@ -851,21 +865,60 @@ def _format_plan_prompt(
     )
 
     loop_safe_bars = [r["bar"] for r in t1_rows if "LOOP_SAFE" in r.get("tags", [])]
-    if loop_safe_bars:
-        loop_rule = (
-            f"3. [LOOP_SAFE] bars in T1 exit zone: {loop_safe_bars}. "
-            "Consider looping T1 at one of these points (1–2 bars) to stabilize the swap."
-        )
-    else:
-        loop_rule = "3. No [LOOP_SAFE] bars in T1 exit zone — use a straight blend."
+
+    # T2 clean intro: first 8 bars of T2 entry zone have low harmonic (drums-only / sparse)
+    t2_enter_bar = window.get("t2_enter_bar", 0)
+    t2_first_8   = [r for r in t2_rows if r.get("bar", 0) < t2_enter_bar + 8]
+    t2_clean_intro = (
+        len(t2_first_8) >= 2
+        and all(r.get("harmonic", 1.0) < 0.30 for r in t2_first_8)
+    )
 
     t1_all_high = all(r.get("rms", 1.0) >= 0.5 for r in t1_rows)
-    energy_rule = (
-        "4. T1 exit zone is uniformly high-energy (all rms ≥ 0.5). "
-        "Note this in reasoning — consider starting the transition earlier."
-        if t1_all_high else
-        "4. Use the lowest-rms bars in T1 exit zone as the transition runway."
-    )
+
+    # T1 has short runway: fewer than 20 bars remain after the exit point
+    t1_bars_remain = max(0, t1.bar_grid.n_bars - window.get("t1_exit_bar", 0))
+
+    if loop_safe_bars and t1_all_high and t2_clean_intro:
+        # Classic peak-hold loop: T1 exits hot, T2 has a percussion-only intro.
+        # A straight blend sounds rough here — loop T1 to create rhythmic tension
+        # and give T2's percussion intro a stable backdrop to rise against.
+        loop_rule = (
+            f"3. USE LOOP TECHNIQUE (peak-hold blend — §7, §14.9): "
+            f"T1 exit zone is uniformly high-energy AND T2 has a clean percussion intro. "
+            f"Pick a LOOP_SAFE bar from {loop_safe_bars[:4]} (avoid vocal bars). "
+            "Loop T1 there: loop_bars=8, loop_repeats=1. "
+            "Fade T2 in during the loop window (start_bar = loop start, duration_bars=16). "
+            "After the loop T1 resumes from loop_start+8 — schedule fade_out there. "
+            "A straight blend is the WRONG choice for this scenario."
+        )
+    elif loop_safe_bars and t1_bars_remain < 20:
+        # Short runway: T1 runs out before a 16-bar blend can finish — loop buys the window.
+        loop_rule = (
+            f"3. USE LOOP TECHNIQUE (extend runway — §7): "
+            f"T1 has only {t1_bars_remain} bars remaining — too short for a clean 16-bar blend. "
+            f"Loop T1 at a LOOP_SAFE bar ({loop_safe_bars[:4]}) with loop_bars=8, loop_repeats=2 "
+            "to create the blend runway. Schedule fade_out at loop_start + loop_bars * loop_repeats."
+        )
+    elif loop_safe_bars:
+        loop_rule = (
+            f"3. LOOP OPTION (§7): LOOP_SAFE bars in T1 exit zone: {loop_safe_bars}. "
+            "You MAY loop T1 here (loop_bars=8, loop_repeats=1) to add rhythmic tension "
+            "before the blend — especially effective when the floor is still responding to T1. "
+            "Not required if a straight blend fits the energy arc."
+        )
+    else:
+        loop_rule = "3. No LOOP_SAFE bars in T1 exit zone — use a straight blend."
+
+    if t1_all_high and loop_safe_bars and t2_clean_intro:
+        energy_rule = "4. T1 exit zone uniformly high-energy — loop technique handles this (see Rule 3)."
+    elif t1_all_high:
+        energy_rule = (
+            "4. T1 exit zone is uniformly high-energy (all rms ≥ 0.5). "
+            "Note this in reasoning — choose the lowest-rms bar as transition anchor."
+        )
+    else:
+        energy_rule = "4. Use the lowest-rms bars in T1 exit zone as the transition runway."
 
     rules = (
         "RULES:\n"
@@ -889,12 +942,15 @@ def _format_plan_prompt(
             f"{'=' * 60}\n\n"
         )
 
+    examples_block = _format_examples_block(examples or [])
+
     return (
         concept_block
         + coord_note
         + situation + "\n\n"
         + t1_table + "\n\n"
         + t2_table + "\n\n"
+        + examples_block
         + rules + "\n\n"
         + "Output the transition actions as JSON."
     )
@@ -966,7 +1022,8 @@ def plan_transition(
 
     client = anthropic.Anthropic()
     system_text = _load_system_prompt() + _PLAN_TASK_SUFFIX
-    prompt = _format_plan_prompt(t1, t2, t1_zone, t2_zone, window, concept=concept)
+    examples = retrieve_examples(t1, t2, window, k=2, concept=concept)
+    prompt = _format_plan_prompt(t1, t2, t1_zone, t2_zone, window, concept=concept, examples=examples)
     logger.debug("Phase 2 prompt (head/tail):\n%s", _truncate(prompt, 1200))
 
     t0 = time.monotonic()

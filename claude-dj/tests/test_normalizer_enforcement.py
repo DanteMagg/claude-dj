@@ -182,3 +182,43 @@ def test_bass_swap_offset_preserved_after_anchor_snap():
     swap = next(a for a in result.actions if a.type == "bass_swap")
     fi   = next(a for a in result.actions if a.type == "fade_in" and a.track == "T2")
     assert swap.at_bar > fi.start_bar
+
+
+# ── bass_swap midpoint snapping (not start-of-fade) ───────────────────────────
+
+
+def test_bass_swap_not_snapped_to_fade_start():
+    # Claude plans 8-bar fade (dur=8). Normalizer extends to 16 (start=48, end=64).
+    # bass_swap was at 52 (midpoint of original 8-bar window).
+    # round(52/8)*8 = 48 via banker's rounding (6.5 → 6) — that's the fade start.
+    # Normalizer should instead place it at the phrase-aligned midpoint: bar 56.
+    s = _script([
+        MixAction(type="play",      track="T1", at_bar=0,  from_bar=0),
+        MixAction(type="fade_in",   track="T2", start_bar=48, duration_bars=8,
+                  stems={"drums": 1.0, "bass": 0.0, "other": 0.4}),
+        MixAction(type="bass_swap", track="T1", at_bar=52, incoming_track="T2"),
+        MixAction(type="fade_out",  track="T1", start_bar=48, duration_bars=8),
+        MixAction(type="play",      track="T2", at_bar=56, from_bar=8),
+    ])
+    result = normalize(s)
+    swap = next(a for a in result.actions if a.type == "bass_swap")
+    fi   = next(a for a in result.actions if a.type == "fade_in" and a.track == "T2")
+    assert fi.duration_bars == 16, "fade should be extended to 16 bars"
+    # Midpoint of 48–64 window = 56
+    assert swap.at_bar == 56, f"expected bass_swap at midpoint 56, got {swap.at_bar}"
+    assert swap.at_bar > fi.start_bar, "bass_swap must not land at fade_in start"
+
+
+def test_bass_swap_at_midpoint_not_moved():
+    # bass_swap already at the phrase-aligned midpoint of the fade window — no change.
+    s = _script([
+        MixAction(type="play",      track="T1", at_bar=0,  from_bar=0),
+        MixAction(type="fade_in",   track="T2", start_bar=48, duration_bars=16,
+                  stems={"drums": 0.8, "bass": 0.0, "other": 0.6}),
+        MixAction(type="bass_swap", track="T1", at_bar=56, incoming_track="T2"),
+        MixAction(type="fade_out",  track="T1", start_bar=48, duration_bars=16),
+        MixAction(type="play",      track="T2", at_bar=64, from_bar=16),
+    ])
+    result = normalize(s)
+    swap = next(a for a in result.actions if a.type == "bass_swap")
+    assert swap.at_bar == 56, "correctly placed bass_swap should not be moved"
