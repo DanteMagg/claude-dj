@@ -104,12 +104,12 @@ def test_loop_bars_2_preserved():
     assert loop.loop_bars == 2
 
 
-def test_loop_bars_1_snaps_to_2():
-    """1-bar loop (too short) snaps up to 2."""
+def test_loop_bars_1_preserved():
+    """1-bar loops are valid for stabilization (loop-lock technique)."""
     s = _script([MixAction(type="loop", track="T1", start_bar=8, loop_bars=1, loop_repeats=1)])
     result = normalize(s)
     loop = next(a for a in result.actions if a.type == "loop")
-    assert loop.loop_bars == 2
+    assert loop.loop_bars == 1
 
 
 def test_loop_bars_3_snaps_to_4():

@@ -23,10 +23,11 @@ def test_vocal_active_and_loop_unsafe_vox():
     assert "LOOP_SAFE" not in tags
 
 
-def test_loop_unsafe_harm():
+def test_high_harmonic_no_longer_blocks_loop_safe():
+    # harmonic content is no longer a LOOP_SAFE disqualifier (tech house loops fine)
     tags = _assign_tags(drums=0.60, harmonic=0.20, vocals=0.05)
-    assert "LOOP_UNSAFE_HARM" in tags
-    assert "LOOP_SAFE" not in tags
+    assert "LOOP_SAFE" in tags
+    assert "LOOP_UNSAFE_HARM" not in tags
 
 
 def test_fade_in_ok():

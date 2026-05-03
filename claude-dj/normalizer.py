@@ -27,6 +27,9 @@ def normalize(script: MixScript) -> MixScript:
     actions = _clamp_durations(actions)
     actions = _clamp_eq(actions)
     actions = _clamp_loops(actions)
+    actions = _enforce_t2_bass_zero(actions)
+    actions = _inject_eq_duration(actions)
+    actions = _snap_fade_in_anchor(actions)
     actions = _snap_bass_swap_bars(actions)
     actions = _align_crossfade_starts(actions)
     actions = _fix_play_from_bar_after_fade_in(actions)
@@ -81,25 +84,25 @@ def _clamp_durations(actions: list[MixAction]) -> list[MixAction]:
     return result
 
 
-_VALID_LOOP_BARS = (2, 4, 8, 16, 32)
+_VALID_LOOP_BARS = (1, 2, 4, 8, 16, 32)
 
 
 def _snap_loop_bars(bars: int) -> int:
-    """Snap to nearest valid loop length. Minimum is 2 bars (tech house short loops)."""
-    bars = max(2, bars)
+    """Snap to nearest valid loop length. Minimum is 1 bar."""
+    bars = max(1, bars)
     return min(_VALID_LOOP_BARS, key=lambda v: (abs(v - bars), -v))
 
 
 def _clamp_loops(actions: list[MixAction]) -> list[MixAction]:
-    """Snap loop_bars to valid values; cap loop_repeats to [1, 4]."""
+    """Snap loop_bars to valid values; cap loop_repeats to [1, 8]."""
     result = []
     for a in actions:
         if a.type != "loop":
             result.append(a)
             continue
         lb = _snap_loop_bars(a.loop_bars or 4)
-        reps = max(1, min(4, a.loop_repeats or 1))
-        start = (a.start_bar or 0) // PHRASE * PHRASE
+        reps = max(1, min(8, a.loop_repeats or 1))
+        start = (a.start_bar or 0) // lb * lb  # align to loop_bars boundary
         result.append(dataclasses.replace(a, loop_bars=lb, loop_repeats=reps, start_bar=start))
     return result
 
@@ -117,6 +120,32 @@ def _clamp_eq(actions: list[MixAction]) -> list[MixAction]:
             mid=max(0.0, min(1.0, a.mid if a.mid is not None else 1.0)),
             high=max(0.0, min(1.0, a.high if a.high is not None else 1.0)),
         ))
+    return result
+
+
+def _enforce_t2_bass_zero(actions: list[MixAction]) -> list[MixAction]:
+    """T2's fade_in must never introduce bass. Force stems["bass"]=0.0 if set."""
+    result = []
+    for a in actions:
+        if a.type == "fade_in" and a.stems and a.stems.get("bass", 0.0) > 0.0:
+            msg = f"forced stems.bass=0.0 on fade_in({a.track}) (was {a.stems['bass']:.2f})"
+            logger.debug("NORMALIZER FIX: %s", msg)
+            print(f"[normalizer] {msg}")
+            a = dataclasses.replace(a, stems={**a.stems, "bass": 0.0})
+        result.append(a)
+    return result
+
+
+def _inject_eq_duration(actions: list[MixAction]) -> list[MixAction]:
+    """Any eq action missing eq_duration_bars gets the default ramp of 4 bars."""
+    result = []
+    for a in actions:
+        if a.type == "eq" and a.eq_duration_bars is None:
+            msg = f"injected eq_duration_bars=4 on eq({a.track} bar={a.bar})"
+            logger.debug("NORMALIZER FIX: %s", msg)
+            print(f"[normalizer] {msg}")
+            a = dataclasses.replace(a, eq_duration_bars=4)
+        result.append(a)
     return result
 
 
@@ -328,35 +357,11 @@ def _restore_incoming_eq(actions: list[MixAction]) -> list[MixAction]:
     # Tracks that continue past the transition window (no fade_out).
     continuing_tids = incoming_tids - outgoing_tids
 
-    # Also guard outgoing tracks whose EQ fires AFTER their fade_out starts.
-    # In a loop-blend T1 is still playing when eq(T1, low=0.0) fires — the EQ
-    # window may extend past the loop end if T1's outro continues. Specifically,
-    # any eq on an outgoing track whose `bar` > fade_out.start_bar needs a restore
-    # at fade_out.start_bar (the EQ would otherwise color audio during active play).
-    # We handle this by including them in the restore sweep with a custom end bar.
-    outgoing_eq_restore: dict[str, int] = {}  # tid → restore bar
-    for a in actions:
-        if a.type != "eq" or a.track not in outgoing_tids:
-            continue
-        fo = next((x for x in actions if x.type == "fade_out" and x.track == a.track), None)
-        if fo is None:
-            continue
-        fo_start = fo.start_bar or 0
-        eq_bar   = a.bar or 0
-        if eq_bar >= fo_start:
-            # EQ fires at or after the fade_out start — part of the fade, no restore needed
-            pass
-        else:
-            # EQ fires before the fade_out starts — it will color T1's active play window.
-            # The fade_out's bass-first HPF handles the low end, but mid/high EQ from this
-            # action needs a restore at the fade_out start bar (or just before T1 exits).
-            eq_any_non_low = (
-                (a.mid  is not None and a.mid  != 1.0) or
-                (a.high is not None and a.high != 1.0)
-            )
-            if eq_any_non_low:
-                # Only mid/high need a restore — the fade_out handles bass.
-                outgoing_eq_restore[a.track] = fo_start
+    # Do NOT restore mid/high EQ on outgoing tracks. When the agent sets eq(T1, mid=0.3)
+    # before the fade_out, that is an intentional vocal/harmonic duck to make space for T2.
+    # Restoring it at fade_out start would undo the ducking right as T1 begins its fade —
+    # audibly wrong (T1 comes back to full mid for 8 bars then fades out).
+    outgoing_eq_restore: dict[str, int] = {}  # intentionally left empty
 
     def _transition_end_bar(tid: str) -> int:
         """Bar at which the blend window for this incoming track closes."""
@@ -461,6 +466,48 @@ def _snap_bass_swap_bars(actions: list[MixAction]) -> list[MixAction]:
         final.append(a)
 
     return final
+
+
+def _snap_fade_in_anchor(actions: list[MixAction]) -> list[MixAction]:
+    """
+    Snap each fade_in.start_bar to the nearest ×PHRASE boundary.
+    Co-shift all subsequent actions on the same track AND any bass_swap
+    within a 40-bar window by the same delta, so relative offsets are preserved.
+
+    Must run before _snap_bass_swap_bars to prevent independent snapping
+    from creating a zero-gap between fade_in and bass_swap.
+    """
+    result = list(actions)
+
+    for fi in [a for a in actions if a.type == "fade_in" and a.start_bar is not None]:
+        orig    = fi.start_bar
+        snapped = round(orig / PHRASE) * PHRASE
+        delta   = snapped - orig
+        if delta == 0:
+            continue
+
+        tid = fi.track
+        msg = f"anchor-snapped fade_in({tid}) start_bar {orig}→{snapped} (Δ{delta:+d})"
+        logger.debug("NORMALIZER FIX: %s", msg)
+        print(f"[normalizer] {msg}")
+
+        new_result = []
+        for a in result:
+            if a.track == tid:
+                if a.type == "fade_in" and a.start_bar == orig:
+                    a = dataclasses.replace(a, start_bar=snapped)
+                elif a.start_bar is not None and a.start_bar > orig:
+                    a = dataclasses.replace(a, start_bar=a.start_bar + delta)
+                elif a.at_bar is not None and a.at_bar > orig:
+                    a = dataclasses.replace(a, at_bar=a.at_bar + delta)
+                elif a.bar is not None and a.bar > orig:
+                    a = dataclasses.replace(a, bar=a.bar + delta)
+            elif a.type == "bass_swap" and a.at_bar is not None and orig <= a.at_bar <= orig + 40:
+                a = dataclasses.replace(a, at_bar=a.at_bar + delta)
+            new_result.append(a)
+        result = new_result
+
+    return result
 
 
 def _inject_bass_swap_if_missing(actions: list[MixAction]) -> list[MixAction]:

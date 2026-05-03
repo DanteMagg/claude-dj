@@ -81,10 +81,11 @@ def test_loop_candidates_empty_when_all_vocal():
     assert candidates == []
 
 
-def test_loop_candidates_empty_when_harmonic_too_high():
+def test_loop_candidates_found_when_harmonic_high():
+    # harmonic is no longer a disqualifier — tech house with heavy bass/synths is loopable
     bars = _make_bars(16, harmonic=0.30)
     candidates = _find_loop_candidates(bars)
-    assert candidates == []
+    assert len(candidates) > 0
 
 
 def test_loop_candidate_bars_snapped_to_valid():
