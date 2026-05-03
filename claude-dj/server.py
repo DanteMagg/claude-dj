@@ -59,6 +59,16 @@ from state import (
     LibraryEntry, ScanJobStore,
 )
 
+import logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(name)s %(levelname)s %(message)s",
+    handlers=[logging.StreamHandler()],
+)
+# Quiet noisy third-party loggers
+for _noisy in ("uvicorn", "uvicorn.access", "fastapi", "httpx", "httpcore", "anthropic"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
+
 app = FastAPI(title="Claude DJ")
 
 app.add_middleware(
