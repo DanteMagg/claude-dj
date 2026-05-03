@@ -140,7 +140,7 @@ def _inject_eq_duration(actions: list[MixAction]) -> list[MixAction]:
     """Any eq action missing eq_duration_bars gets the default ramp of 4 bars."""
     result = []
     for a in actions:
-        if a.type == "eq" and a.eq_duration_bars is None:
+        if a.type == "eq" and not a.eq_duration_bars:
             msg = f"injected eq_duration_bars=4 on eq({a.track} bar={a.bar})"
             logger.debug("NORMALIZER FIX: %s", msg)
             print(f"[normalizer] {msg}")

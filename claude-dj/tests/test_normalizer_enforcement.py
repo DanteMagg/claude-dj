@@ -61,6 +61,18 @@ def test_eq_duration_injected_when_missing():
     assert eq_a.eq_duration_bars == 4
 
 
+def test_eq_duration_zero_treated_as_missing():
+    s = _script([
+        MixAction(type="play",     track="T1", at_bar=0,  from_bar=0),
+        MixAction(type="eq",       track="T1", bar=16,    low=1.0, eq_duration_bars=0),
+        MixAction(type="fade_out", track="T1", start_bar=32, duration_bars=16),
+        MixAction(type="fade_in",  track="T2", start_bar=32, duration_bars=16),
+    ])
+    result = normalize(s)
+    eq_a = next(a for a in result.actions if a.type == "eq" and a.track == "T1" and a.bar == 16)
+    assert eq_a.eq_duration_bars == 4
+
+
 def test_eq_duration_not_overwritten_when_present():
     s = _script([
         MixAction(type="play",     track="T1", at_bar=0,  from_bar=0),
