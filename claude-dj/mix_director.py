@@ -469,11 +469,47 @@ _WINDOW_SYSTEM = (
     "Output ONLY valid JSON — no prose, no markdown fences."
 )
 
+# Minimum bars a track must play past its entry point before it may be mixed out.
+MIN_PLAY_BARS = 32
+
+
+def _phrase_floor(bar: int) -> int:
+    return (int(bar) // 8) * 8
+
+
+def _phrase_ceil(bar: int) -> int:
+    return -(-int(bar) // 8) * 8
+
+
+def clamp_t1_exit_bar(
+    raw_exit: int,
+    n_bars: int,
+    window_bars: int,
+    entered_at_bar: int = 0,
+) -> int:
+    """
+    Snap a T1 exit bar to a phrase boundary and hold it inside the legal range.
+
+    Ceiling: leave at least window_bars of T1 audio for the overlap to run in.
+    Floor:   T1 must play at least MIN_PLAY_BARS past entered_at_bar — the bar in T1's
+             OWN timeline where it entered the mix. Bars before that point never reach
+             the speakers, so an exit bar below the floor asks the outgoing deck to fade
+             out at a moment it has already played past. Downstream that reads as an
+             instant fade_out (live) or, once the offsets are applied, a transition
+             placed earlier than the one before it (offline merge).
+    The ceiling wins when the two conflict — a short track, or an entry point so late
+    that MIN_PLAY_BARS simply does not fit.
+    """
+    max_exit = max(0, _phrase_floor(n_bars - window_bars))
+    min_exit = min(max(0, _phrase_ceil(entered_at_bar + MIN_PLAY_BARS)), max_exit)
+    return max(min_exit, min(_phrase_floor(raw_exit), max_exit))
+
+
 _WINDOW_PROMPT_TEMPLATE = """\
 Given these two track summaries, choose the optimal transition window.
 
 {summaries}
-{profiles_section}{peek_section}
+{profiles_section}{entry_section}{peek_section}
 Output a single JSON object:
 {{
   "t1_exit_bar":  <int: bar in T1 where fade_out starts — use its mix_out or breakdown_start cue>,
@@ -486,6 +522,8 @@ Rules:
 - t1_exit_bar should be T1's mix_out cue (or breakdown_start for a slower blend).
   If the zone data above shows the suggested exit bar still has high drums/rms, push the
   exit later to a lower-energy bar.
+  If T1 is mid-set (see above), t1_exit_bar must be past the bar it entered at — bars
+  before that never reach the speakers.
 - t2_enter_bar should be T2's mix_in cue (usually 0 — the clean intro start).
 - window_bars default = 16. Use 32 for deep/prog styles; 8 for key clashes or tight cuts.
 - style = "blend" for standard crossfades, "cut" for instant switches, "drop_swap" for matching drops.
@@ -553,22 +591,29 @@ def select_transition_window(
     t2: TrackAnalysis,
     model: str,
     concept: dict | None = None,
+    t1_entered_at_bar: int = 0,
 ) -> dict:
     """
     Phase 1: lightweight API call that picks where the transition should happen.
     Runs a quick per-bar energy peek (~8 bars around the default T1 exit) so the
     model can tell whether the suggested cue point is actually low-energy or still
     kicking.  Falls back to cue-point defaults on any error.
+
+    t1_entered_at_bar is the bar in T1's own timeline where T1 entered the mix — 0 for
+    the opening track, the incoming deck's from_bar for every transition after that.
+    Callers that leave it at 0 get the old behaviour; callers mid-set must pass it, or
+    the returned t1_exit_bar can land on audio T1 has already played past.
     """
     logger.debug(
         "%s\nPHASE 1: select_transition_window\n"
-        "  T1: %r  bpm=%.1f  key=%s  bars=%d\n"
+        "  T1: %r  bpm=%.1f  key=%s  bars=%d  entered_at_bar=%d\n"
         "  T2: %r  bpm=%.1f  key=%s  bars=%d",
         _hr(),
         getattr(t1, "title", t1.file),
         t1.bpm,
         getattr(t1.key, "camelot", "?"),
         t1.bar_grid.n_bars,
+        t1_entered_at_bar,
         getattr(t2, "title", t2.file),
         t2.bpm,
         getattr(t2.key, "camelot", "?"),
@@ -582,15 +627,22 @@ def select_transition_window(
     # Sensible defaults derived from cue points (needed before the API call)
     cue_t1 = {c.name: c.bar for c in t1.cue_points}
     cue_t2 = {c.name: c.bar for c in t2.cue_points}
-    probe_bar = (
+    # The cue points describe the whole track, so a mid-set T1 can point the probe at
+    # bars that already played. Clamp before peeking so the zone data the model sees is
+    # the zone it can actually still use. 16 = default["window_bars"] below.
+    raw_probe_bar = (
         cue_t1.get("mix_out")
         or cue_t1.get("breakdown_start")
         or max(0, t1.bar_grid.n_bars - 32)
     )
+    probe_bar = clamp_t1_exit_bar(raw_probe_bar, t1.bar_grid.n_bars, 16, t1_entered_at_bar)
 
     logger.debug(
-        "T1 cues: %s  →  probe_bar=%d\nT2 cues: %s",
-        cue_t1, probe_bar, cue_t2,
+        "T1 cues: %s  →  probe_bar=%d%s\nT2 cues: %s",
+        cue_t1,
+        probe_bar,
+        f" (from {raw_probe_bar}, entered_at_bar={t1_entered_at_bar})" if probe_bar != raw_probe_bar else "",
+        cue_t2,
     )
 
     # Quick zone peek: 4 bars lead-in + 8 bars past the suggested exit (~12 bars total)
@@ -647,10 +699,21 @@ def select_transition_window(
         getattr(t2, "mixing_profile", None),
     )
 
+    # Tell the model where T1 came in, so it picks a usable exit instead of leaning on
+    # the clamp below to drag an unusable one forward.
+    entry_section = ""
+    if t1_entered_at_bar > 0:
+        entry_section = (
+            f"T1 IS MID-SET: it entered the mix at its own bar {t1_entered_at_bar}, so bars "
+            f"0–{t1_entered_at_bar} never played. Choose t1_exit_bar at or after bar "
+            f"{t1_entered_at_bar + MIN_PLAY_BARS} so T1 gets a real run before it is mixed out.\n\n"
+        )
+
     prompt = _WINDOW_PROMPT_TEMPLATE.format(
         summaries=summaries,
         peek_section=peek_section,
         profiles_section=profiles_section,
+        entry_section=entry_section,
     )
     if concept:
         d = concept.get("directives", {})
@@ -706,11 +769,14 @@ def select_transition_window(
         window.setdefault("t2_enter_bar", default["t2_enter_bar"])
         window["window_bars"] = max(8, min(32, int(window.get("window_bars", 16))))
         window["style"]       = window.get("style", "blend")
-        # Ensure t1_exit_bar is a phrase-multiple (multiple of 8)
-        window["t1_exit_bar"] = (int(window["t1_exit_bar"]) // 8) * 8
-        # Clamp so there's always at least window_bars of audio left in T1
-        max_exit = ((t1.bar_grid.n_bars - window["window_bars"]) // 8) * 8
-        window["t1_exit_bar"] = min(window["t1_exit_bar"], max(0, max_exit))
+        # Phrase-snap, keep window_bars of T1 audio for the overlap, and keep the exit
+        # at least MIN_PLAY_BARS past wherever T1 entered the mix.
+        window["t1_exit_bar"] = clamp_t1_exit_bar(
+            window["t1_exit_bar"],
+            t1.bar_grid.n_bars,
+            window["window_bars"],
+            t1_entered_at_bar,
+        )
         window["t2_enter_bar"] = max(0, int(window["t2_enter_bar"]))
         clamp_notes = []
         if raw_window.get("t1_exit_bar") != window["t1_exit_bar"]:

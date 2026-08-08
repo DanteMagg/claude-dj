@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import functools
 import os
 import time as _time
 import uuid
@@ -99,8 +100,12 @@ def merge_transition(
     Sub-script bars are in track-local space (bar 0 = each track's first downbeat).
     They need two DIFFERENT global offsets:
 
-      t1_offset  = global bar where current track started playing (= current_start_bar).
+      t1_offset  = global bar of the current track's OWN bar 0
+                   (= current_start_bar - current_from_bar).
                    T1 local bar 80 → global bar 80 + t1_offset.
+                   The from_bar term matters because every track after the first is mixed
+                   in part-way through: if a deck started at global bar 100 playing from
+                   its own bar 24, its local bar 80 is at global 156, not 180.
       t2_offset  = global bar where T2's content should begin (= adjusted_offset,
                    set to TRANSITION_LOOKAHEAD bars ahead of actual playback).
                    T2 local bar 0 → global bar 0 + t2_offset.
@@ -254,6 +259,7 @@ async def dj_worker(
     state.ref_bpm           = ref_bpm
     state.track_counter     = 1
     state.current_start_bar = 0
+    state.current_from_bar  = 0   # opening track plays from its own bar 0
     state.deck_a = DjDeckA(
         track_id  = "T1",
         hash      = first_hash,
@@ -277,6 +283,10 @@ async def dj_worker(
         current_id    = f"T{state.track_counter}"
         current_hash  = state.deck_a.hash
         current_start = state.current_start_bar
+        current_from  = state.current_from_bar
+        # Global bar of the current track's OWN bar 0 — the offset that maps every
+        # track-local bar Claude writes for T1 into global mix space.
+        t1_offset     = current_start - current_from
 
         next_hash = _pop_next()
         if not next_hash:
@@ -323,11 +333,16 @@ async def dj_worker(
 
         try:
             window: dict = await loop.run_in_executor(
-                _bg_executor, select_transition_window,
-                t1_labeled, t2_labeled, model,
+                _bg_executor,
+                functools.partial(
+                    select_transition_window,
+                    t1_labeled, t2_labeled, model,
+                    t1_entered_at_bar=current_from,
+                ),
             )
             print(
                 f"[dj_worker] window selected: T1 exit bar={window['t1_exit_bar']} "
+                f"(T1 entered at bar {current_from}) "
                 f"T2 enter bar={window['t2_enter_bar']} overlap={window['window_bars']} "
                 f"style={window['style']}"
             )
@@ -435,10 +450,16 @@ async def dj_worker(
         actual_playback_bar = (now - session_wall_start) / secs_per_bar
 
         # Find where the sub_script's T2 play action starts (relative to sub_script bar 0)
+        # and which bar of T2's own timeline that play begins from. next_from_bar is what
+        # makes T2 "mid-set" once it becomes deck A: it is the entry point the next call to
+        # select_transition_window must respect, and the term that maps T2-local bars into
+        # global space on the following iteration.
         sub_t2_first = 0
+        next_from_bar = 0
         for a in sub_script.actions:
             if a.type == "play" and a.track == "T2":
-                sub_t2_first = a.at_bar or 0
+                sub_t2_first  = a.at_bar   or 0
+                next_from_bar = a.from_bar or 0
                 break
 
         # Find T2's EARLIEST action bar in sub_script (fade_in starts before play)
@@ -471,7 +492,7 @@ async def dj_worker(
         new_script, next_start_bar = merge_transition(
             global_script, sub_script, current_id, next_id,
             t2_offset=adjusted_offset,
-            t1_offset=current_start,
+            t1_offset=t1_offset,
         )
 
         # Guard: clamp T1's fade_out so it can't land past T1's actual audio end.
@@ -479,7 +500,7 @@ async def dj_worker(
         # t1_offset. On iteration 3+ t1_offset is large and a stale or conservative
         # Claude value can push fade_out past the end of the audio → layer never fades,
         # track plays to silence.
-        t1_audio_end_bar = current_start + current_analysis.bar_grid.n_bars
+        t1_audio_end_bar = t1_offset + current_analysis.bar_grid.n_bars
         patched_actions = []
         for a in new_script.actions:
             if a.track == current_id and a.type == "fade_out" and a.start_bar is not None:
@@ -530,6 +551,7 @@ async def dj_worker(
         )
         state.deck_b = None
         state.current_start_bar = next_start_bar
+        state.current_from_bar  = next_from_bar
         current_analysis = next_analysis
         # Do NOT re-anchor session_wall_start here using _time.monotonic() — that time
         # includes asyncio.sleep overhead and planning latency, causing cumulative drift.
