@@ -1,0 +1,224 @@
+import pytest
+from normalizer import normalize
+from schema import MixAction, MixScript, MixTrackRef
+
+
+def _script(actions, n_tracks=2):
+    tracks = [
+        MixTrackRef(id=f"T{i+1}", path=f"/t{i+1}.mp3", bpm=128.0, first_downbeat_s=0.0)
+        for i in range(n_tracks)
+    ]
+    return MixScript(mix_title="test", reasoning="", tracks=tracks, actions=actions)
+
+
+# ── T2 bass=0 enforcement ──────────────────────────────────────────────────
+
+
+def test_t2_fade_in_bass_forced_to_zero():
+    s = _script([
+        MixAction(type="fade_in",  track="T2", start_bar=16, duration_bars=16,
+                  stems={"drums": 0.8, "bass": 0.9, "other": 0.6}),
+        MixAction(type="fade_out", track="T1", start_bar=16, duration_bars=16),
+    ])
+    result = normalize(s)
+    fi = next(a for a in result.actions if a.type == "fade_in" and a.track == "T2")
+    assert fi.stems["bass"] == 0.0
+
+
+def test_t2_fade_in_bass_zero_already_unchanged():
+    s = _script([
+        MixAction(type="fade_in",  track="T2", start_bar=16, duration_bars=16,
+                  stems={"drums": 0.8, "bass": 0.0, "other": 0.6}),
+        MixAction(type="fade_out", track="T1", start_bar=16, duration_bars=16),
+    ])
+    result = normalize(s)
+    fi = next(a for a in result.actions if a.type == "fade_in" and a.track == "T2")
+    assert fi.stems["bass"] == 0.0
+
+
+def test_t2_fade_in_no_stems_unaffected():
+    s = _script([
+        MixAction(type="fade_in",  track="T2", start_bar=16, duration_bars=16),
+        MixAction(type="fade_out", track="T1", start_bar=16, duration_bars=16),
+    ])
+    result = normalize(s)
+    fi = next(a for a in result.actions if a.type == "fade_in" and a.track == "T2")
+    assert fi.stems is None
+
+
+# ── EQ duration injection ──────────────────────────────────────────────────
+
+
+def test_eq_duration_injected_when_missing():
+    s = _script([
+        MixAction(type="play",     track="T1", at_bar=0,  from_bar=0),
+        MixAction(type="eq",       track="T1", bar=16,    low=0.0),
+        MixAction(type="fade_out", track="T1", start_bar=32, duration_bars=16),
+        MixAction(type="fade_in",  track="T2", start_bar=32, duration_bars=16),
+    ])
+    result = normalize(s)
+    eq_a = next(a for a in result.actions if a.type == "eq" and a.track == "T1" and a.bar == 16)
+    assert eq_a.eq_duration_bars == 4
+
+
+def test_eq_duration_zero_treated_as_missing():
+    s = _script([
+        MixAction(type="play",     track="T1", at_bar=0,  from_bar=0),
+        MixAction(type="eq",       track="T1", bar=16,    low=1.0, eq_duration_bars=0),
+        MixAction(type="fade_out", track="T1", start_bar=32, duration_bars=16),
+        MixAction(type="fade_in",  track="T2", start_bar=32, duration_bars=16),
+    ])
+    result = normalize(s)
+    eq_a = next(a for a in result.actions if a.type == "eq" and a.track == "T1" and a.bar == 16)
+    assert eq_a.eq_duration_bars == 4
+
+
+def test_eq_duration_not_overwritten_when_present():
+    s = _script([
+        MixAction(type="play",     track="T1", at_bar=0,  from_bar=0),
+        MixAction(type="eq",       track="T1", bar=16,    low=0.0, eq_duration_bars=2),
+        MixAction(type="fade_out", track="T1", start_bar=32, duration_bars=16),
+        MixAction(type="fade_in",  track="T2", start_bar=32, duration_bars=16),
+    ])
+    result = normalize(s)
+    eq_a = next(a for a in result.actions if a.type == "eq" and a.track == "T1" and a.bar == 16)
+    assert eq_a.eq_duration_bars == 2
+
+
+# ── 1-bar loop support ─────────────────────────────────────────────────────
+
+
+def test_one_bar_loop_preserved():
+    s = _script([
+        MixAction(type="play", track="T1", at_bar=0, from_bar=0),
+        MixAction(type="loop", track="T1", start_bar=80, loop_bars=1, loop_repeats=4),
+        MixAction(type="fade_out", track="T1", start_bar=88, duration_bars=16),
+        MixAction(type="fade_in",  track="T2", start_bar=88, duration_bars=16),
+    ])
+    result = normalize(s)
+    loop_a = next(a for a in result.actions if a.type == "loop")
+    assert loop_a.loop_bars == 1
+
+
+# ── Anchor-first ×8 phrase snapping ───────────────────────────────────────
+
+
+def test_fade_in_snapped_to_phrase_boundary():
+    s = _script([
+        MixAction(type="play",      track="T1", at_bar=0,  from_bar=0),
+        MixAction(type="fade_out",  track="T1", start_bar=20, duration_bars=16),
+        MixAction(type="fade_in",   track="T2", start_bar=20, duration_bars=16),
+        MixAction(type="bass_swap", track="T1", at_bar=28, incoming_track="T2"),
+    ])
+    result = normalize(s)
+    fi = next(a for a in result.actions if a.type == "fade_in" and a.track == "T2")
+    assert fi.start_bar % 8 == 0
+
+
+# ── Stems-release ramp ────────────────────────────────────────────────────
+
+
+def test_stems_release_ramp_injected_when_vocals_suppressed():
+    s = _script([
+        MixAction(type="play",     track="T1", at_bar=0,  from_bar=0),
+        MixAction(type="fade_out", track="T1", start_bar=32, duration_bars=16),
+        MixAction(type="fade_in",  track="T2", start_bar=32, duration_bars=16,
+                  stems={"drums": 0.75, "bass": 0.0, "other": 0.6, "vocals": 0.0}),
+    ])
+    result = normalize(s)
+    fade_end = 32 + 16  # 48
+    # Expect a dip (mid=0.0) 4 bars before fade_end and a bloom (mid=1.0) at fade_end
+    eq_actions = [a for a in result.actions if a.type == "eq" and a.track == "T2"]
+    dip  = next((a for a in eq_actions if (a.bar or 0) == fade_end - 4 and a.mid == 0.0), None)
+    bloom = next((a for a in eq_actions if (a.bar or 0) == fade_end  and a.mid == 1.0), None)
+    assert dip  is not None, "expected mid dip 4 bars before fade_end"
+    assert bloom is not None, "expected mid bloom at fade_end"
+    assert dip.eq_duration_bars  == 4
+    assert bloom.eq_duration_bars == 4
+    # bass=0.0 in stems → dip keeps low=0.0 so bloom ramps bass from 0→1 (no slam)
+    assert dip.low == 0.0, "dip should keep low=0.0 when bass was suppressed"
+
+
+def test_stems_release_ramp_not_injected_when_vocals_present():
+    s = _script([
+        MixAction(type="play",     track="T1", at_bar=0,  from_bar=0),
+        MixAction(type="fade_out", track="T1", start_bar=32, duration_bars=16),
+        MixAction(type="fade_in",  track="T2", start_bar=32, duration_bars=16,
+                  stems={"drums": 0.75, "bass": 0.0, "other": 0.6, "vocals": 0.8}),
+    ])
+    result = normalize(s)
+    fade_end = 48
+    eq_T2 = [a for a in result.actions if a.type == "eq" and a.track == "T2"
+             and (a.bar or 0) in (fade_end - 4, fade_end) and a.mid == 0.0]
+    assert eq_T2 == [], "should not inject ramp when vocals not suppressed"
+
+
+def test_stems_release_ramp_not_injected_when_eq_already_present():
+    s = _script([
+        MixAction(type="play",     track="T1", at_bar=0,  from_bar=0),
+        MixAction(type="fade_out", track="T1", start_bar=32, duration_bars=16),
+        MixAction(type="fade_in",  track="T2", start_bar=32, duration_bars=16,
+                  stems={"drums": 0.75, "bass": 0.0, "other": 0.6, "vocals": 0.0}),
+        # Claude already placed an EQ near the handoff
+        MixAction(type="eq", track="T2", bar=46, mid=0.3, eq_duration_bars=4),
+    ])
+    result = normalize(s)
+    # Should not inject a second dip — existing eq covers the window
+    dips = [a for a in result.actions if a.type == "eq" and a.track == "T2"
+            and (a.bar or 0) == 44 and a.mid == 0.0]
+    assert dips == []
+
+
+def test_bass_swap_offset_preserved_after_anchor_snap():
+    # fade_in at bar 20 → snaps to 16 (delta=-4)
+    # bass_swap was 8 bars after fade_in (bar 28) → should be 8 bars after snapped (bar 24)
+    s = _script([
+        MixAction(type="play",      track="T1", at_bar=0,  from_bar=0),
+        MixAction(type="fade_out",  track="T1", start_bar=20, duration_bars=16),
+        MixAction(type="fade_in",   track="T2", start_bar=20, duration_bars=16),
+        MixAction(type="bass_swap", track="T1", at_bar=28, incoming_track="T2"),
+    ])
+    result = normalize(s)
+    swap = next(a for a in result.actions if a.type == "bass_swap")
+    fi   = next(a for a in result.actions if a.type == "fade_in" and a.track == "T2")
+    assert swap.at_bar > fi.start_bar
+
+
+# ── bass_swap midpoint snapping (not start-of-fade) ───────────────────────────
+
+
+def test_bass_swap_not_snapped_to_fade_start():
+    # Claude plans 8-bar fade (dur=8). Normalizer extends to 16 (start=48, end=64).
+    # bass_swap was at 52 (midpoint of original 8-bar window).
+    # round(52/8)*8 = 48 via banker's rounding (6.5 → 6) — that's the fade start.
+    # Normalizer should instead place it at the phrase-aligned midpoint: bar 56.
+    s = _script([
+        MixAction(type="play",      track="T1", at_bar=0,  from_bar=0),
+        MixAction(type="fade_in",   track="T2", start_bar=48, duration_bars=8,
+                  stems={"drums": 1.0, "bass": 0.0, "other": 0.4}),
+        MixAction(type="bass_swap", track="T1", at_bar=52, incoming_track="T2"),
+        MixAction(type="fade_out",  track="T1", start_bar=48, duration_bars=8),
+        MixAction(type="play",      track="T2", at_bar=56, from_bar=8),
+    ])
+    result = normalize(s)
+    swap = next(a for a in result.actions if a.type == "bass_swap")
+    fi   = next(a for a in result.actions if a.type == "fade_in" and a.track == "T2")
+    assert fi.duration_bars == 16, "fade should be extended to 16 bars"
+    # Midpoint of 48–64 window = 56
+    assert swap.at_bar == 56, f"expected bass_swap at midpoint 56, got {swap.at_bar}"
+    assert swap.at_bar > fi.start_bar, "bass_swap must not land at fade_in start"
+
+
+def test_bass_swap_at_midpoint_not_moved():
+    # bass_swap already at the phrase-aligned midpoint of the fade window — no change.
+    s = _script([
+        MixAction(type="play",      track="T1", at_bar=0,  from_bar=0),
+        MixAction(type="fade_in",   track="T2", start_bar=48, duration_bars=16,
+                  stems={"drums": 0.8, "bass": 0.0, "other": 0.6}),
+        MixAction(type="bass_swap", track="T1", at_bar=56, incoming_track="T2"),
+        MixAction(type="fade_out",  track="T1", start_bar=48, duration_bars=16),
+        MixAction(type="play",      track="T2", at_bar=64, from_bar=16),
+    ])
+    result = normalize(s)
+    swap = next(a for a in result.actions if a.type == "bass_swap")
+    assert swap.at_bar == 56, "correctly placed bass_swap should not be moved"

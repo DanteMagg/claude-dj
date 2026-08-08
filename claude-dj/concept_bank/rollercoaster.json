@@ -1,0 +1,13 @@
+{
+  "name": "rollercoaster",
+  "display_name": "Rollercoaster",
+  "description": "Deliberate wave — peaks and valleys. Bold cuts permitted at valleys.",
+  "directives": {
+    "preferred_overlap_bars": 16,
+    "preferred_technique": "blend",
+    "avoid_technique": [],
+    "bass_swap_placement": "mid"
+  },
+  "example_ids": [],
+  "prompt_injection": "ROLLERCOASTER SET. Deliberate contrast. You are allowed to drop energy sharply — that is the point. A well-placed energy valley makes the next peak hit harder. Use every technique including cuts.\n\nENERGY PEAK TRANSITIONS (energy 7–10):\n  Loop-and-build: loop(T1, loop_bars=8, loop_repeats=2), then 16-bar fade_in with drums:1.0, bass_swap at bar +4. High presence, fast handover.\n\nENERGY VALLEY TRANSITIONS (deliberate energy drop):\n  Bold cut: fade_out(T1, duration_bars=4) — quick fade. play(T2, at_bar=<exit+4>, from_bar=<T2 mix_in>). T2 enters at low energy immediately. The contrast is intentional.\n  Or filter dissolve: stepped eq(T1, high→mid→low) over 8 bars, then T2 enters as atmosphere from near silence.\n\nREBUILD TRANSITIONS (valley → rising back up):\n  Standard 24-bar blend from low energy: stems={drums:0.7, other:0.3, bass:0.0}. Let T2 establish groove fully before bass swap.\n\nREADING THE ENERGY:\n  Rising (T2 energy > T1): tighten overlap, early bass_swap, higher stem openings\n  Falling (T2 energy < T1): use cut or filter dissolve, no loop-and-build\n  Holding flat: standard blend, mid bass_swap\n\nMACRO RULE: Never drop energy more than 2 levels without a bridge track. The valley must feel intentional.\nFORBIDDEN: same technique on more than 2 consecutive transitions. Three identical blends = warmup behavior."
+}

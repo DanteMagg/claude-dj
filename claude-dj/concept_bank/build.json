@@ -1,0 +1,13 @@
+{
+  "name": "build",
+  "display_name": "Build Set",
+  "description": "Rising arc 3→8, no cooldown. Escalating only. Hand off to headliner at 80%.",
+  "directives": {
+    "preferred_overlap_bars": 24,
+    "preferred_technique": "blend",
+    "avoid_technique": [],
+    "bass_swap_placement": "mid"
+  },
+  "example_ids": [],
+  "prompt_injection": "BUILD SET. Energy only goes up. You are handing off to a headliner — leave the room at 80% energy, not at peak. Each transition is a small step up.\n\nBLEND TIGHTENING RULE — adjust overlap to current energy level:\n  Energy 3–5: overlap 24 bars, stems={drums:0.7, other:0.3, bass:0.0}, bass_swap mid\n  Energy 5–6: overlap 20 bars, stems={drums:0.8, other:0.4, bass:0.0}, bass_swap mid\n  Energy 6–7: overlap 16 bars, stems={drums:0.9, other:0.5, bass:0.0}, bass_swap early\n  Energy 7–8: overlap 16 bars, loop-and-build optional, bass_swap early\n\nSTANDARD BLEND (energy 3–5):\n1. fade_in(T2, duration_bars=24, stems={drums:0.7, other:0.3, bass:0.0})\n2. eq(T1, low=0.6) at bar +8.\n3. bass_swap at bar +12. eq(T1, low=0.0). eq(T2, low=1.0).\n4. eq(T1, mid=0.6) at bar +16. T1 recedes.\n5. T1 fade_out starts at bar +12 over 16 bars.\n\nTIGHTENED BLEND (energy 6–8):\n1. fade_in(T2, duration_bars=16, stems={drums:1.0, other:0.6, bass:0.0})\n2. eq(T1, low=0.0) at bar -4 before T2 enters (aggressive pre-cut).\n3. bass_swap at bar +4 (early). eq(T2, low=1.0).\n4. eq(T1, mid=0.3) immediately. T1 mids cut fast.\n5. T1 fade_out over 16 bars simultaneous with T2 fade_in.\n\nCEILING RULE: Steps of +1 energy only. If no +1 track available, hold flat rather than jumping.\nFORBIDDEN: energy drops of any kind, cool-down technique, 32-bar blends after energy passes 6, bass_swap after 60% of window once energy exceeds 6."
+}

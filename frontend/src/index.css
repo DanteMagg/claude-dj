@@ -1,0 +1,67 @@
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #080808;
+  --surface:   #0e0e0e;
+  --surface2:  #141414;
+  --border:    #1e1e1e;
+  --border2:   #2a2a2a;
+
+  --orange:    #ff5f00;
+  --orange-lo: rgba(255,95,0,0.08);
+  --blue:      #00b4ff;
+  --blue-lo:   rgba(0,180,255,0.08);
+  --purple:    #bf5af2;
+  --green:     #30d158;
+  --yellow:    #ffd60a;
+  --red:       #ff375f;
+
+  --text:      #e8e8e8;
+  --text-2:    #666;
+  --text-3:    #333;
+
+  --font-ui:   'Geist', system-ui, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, monospace;
+}
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+}
+
+button { cursor: pointer; border: none; background: none; color: inherit; font: inherit; }
+
+input, select {
+  font: inherit;
+  color: var(--text);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 5px 9px;
+  outline: none;
+}
+input:focus, select:focus { border-color: var(--orange); }
+
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: var(--surface); }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+@keyframes pulse {
+  0%, 100% { opacity: 0.7; }
+  50%       { opacity: 1; }
+}
+@keyframes pulse-ring {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(191,90,242,0.3); }
+  50%       { box-shadow: 0 0 0 4px rgba(191,90,242,0.1); }
+}

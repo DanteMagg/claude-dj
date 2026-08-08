@@ -1,0 +1,25 @@
+{
+  "mix_title": "Claude DJ Set — 2026-04-30",
+  "reasoning": "T1 (Demo Track 1, Fm/4A, 129.2 BPM) and T2 (No Broke Boys, G#m/1A, 132.5 BPM) are 3 steps apart on the Camelot wheel — outside the compatible ±1 range. Fm and G#m share no common tones, so a long blend would sound dissonant. The strategy: transition during T1's section C (bars 49–63, energy 4), which is T1's main breakdown. Low energy and sparse content are the most forgiving context for a key-incompatible transition — the ear focuses on rhythm not harmony. T2 enters from its own intro (bars 0–8, energy 4), matching T1's breakdown energy level so there's no jarring volume jump. Crossfade is 8 bars (fast for a key clash). EQ cuts T1's low end at bar 52 to carve space and further reduce harmonic clash, since bass frequencies are where mismatched keys are most audible. After the fade, T2 continues from its bar 8, picking up mid-intro heading toward its first chorus at bar 30.",
+  "tracks": [
+    {
+      "id": "T1",
+      "path": "/Users/DantesFolder/Music/PioneerDJ/Demo Tracks/Demo Track 1.mp3",
+      "bpm": 129.2,
+      "first_downbeat_s": 0.046
+    },
+    {
+      "id": "T2",
+      "path": "/Users/DantesFolder/Downloads/Disco Lines - No Broke Boys.mp3",
+      "bpm": 132.5,
+      "first_downbeat_s": 0.813
+    }
+  ],
+  "actions": [
+    { "type": "play",     "track": "T1", "at_bar": 0,  "from_bar": 0 },
+    { "type": "eq",       "track": "T1", "bar": 52,    "low": 0.1, "mid": 0.9, "high": 1.0 },
+    { "type": "fade_in",  "track": "T2", "start_bar": 52, "duration_bars": 8 },
+    { "type": "fade_out", "track": "T1", "start_bar": 54, "duration_bars": 8 },
+    { "type": "play",     "track": "T2", "at_bar": 60, "from_bar": 8 }
+  ]
+}

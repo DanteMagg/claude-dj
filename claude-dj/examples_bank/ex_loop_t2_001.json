@@ -1,0 +1,124 @@
+{
+  "id": "ex_loop_t2_001",
+  "meta": {
+    "genre": "tech_house",
+    "t1_bpm": 128.0,
+    "t2_bpm": 128.0,
+    "t1_camelot": "11A",
+    "t2_camelot": "10A",
+    "camelot_distance": 1,
+    "bpm_delta": 0.0,
+    "exit_section": "main_groove",
+    "overlap_bars": 16,
+    "technique": "loop_t2_fade_in",
+    "scenario": "T2 enters as a looped phrase \u2014 fade-in loop strategy",
+    "t1_artist": "T1 Artist",
+    "t1_title": "Main Groove Track",
+    "t2_artist": "T2 Artist",
+    "t2_title": "Strong Intro Track"
+  },
+  "transition_arc": "T1 is in its main groove, T2 has a strong clean 4-bar loop candidate at bar 8. Instead of a straight fade_in, T2 enters as a looped phrase \u2014 the same 4-bar groove repeating 3 times (12 bars). During those 12 bars, T2 fades up from near-silence to audible presence. The loop break (play(T2) at fade_in end) is the 'moment' \u2014 T2 snaps out of the loop and plays freely, which creates a natural tension-and-release that the straight fade_in lacks. 11A to 10A is a -1 Camelot move, fully compatible.",
+  "annotated_actions": [
+    {
+      "action": {
+        "type": "play",
+        "track": "T1",
+        "at_bar": 0,
+        "from_bar": 0
+      },
+      "t1_state": "T1 bar 0: full groove active",
+      "why": "Standard entry."
+    },
+    {
+      "action": {
+        "type": "eq",
+        "track": "T2",
+        "bar": 64,
+        "low": 0.0,
+        "mid": 1.0,
+        "high": 1.0
+      },
+      "why": "Kill T2 bass before fade starts. T2 will loop while fading in \u2014 no bass yet."
+    },
+    {
+      "action": {
+        "type": "loop",
+        "track": "T2",
+        "start_bar": 64,
+        "loop_bars": 4,
+        "loop_repeats": 3
+      },
+      "t2_state": "T2 bar 8 (from_bar for fade_in): clean 4-bar groove, drums=0.9, harmonic=0.7, vocals=0.00. This section repeats well \u2014 identical to the next 4 bars.",
+      "why": "T2 enters as a looped phrase. loop(T2) locks T2's audio to a 4-bar phrase repeating 3 times (12 bars). Combined with fade_in, T2 fades up while stuck on this groove. The listener hears T2 as a rising rhythmic texture, not a new track yet. The loop break at bar 76 is the 'moment' \u2014 T2 suddenly plays freely, a natural tension release."
+    },
+    {
+      "action": {
+        "type": "fade_in",
+        "track": "T2",
+        "start_bar": 64,
+        "duration_bars": 12,
+        "from_bar": 8,
+        "stems": {
+          "drums": 0.8,
+          "bass": 0.0,
+          "other": 0.6
+        }
+      },
+      "t2_state": "T2 from_bar=8: kick present, bass=0.0 (eq), groove locked at bar 8 by loop",
+      "why": "Fade_in + loop together: T2 fades from 0 to 1.0 over 12 bars while the loop holds it at the 4-bar phrase. The gain ramp is continuous; the loop just holds the audio source position. from_bar=8 is where the loop candidate starts in T2's audio."
+    },
+    {
+      "action": {
+        "type": "eq",
+        "track": "T1",
+        "bar": 64,
+        "low": 1.0,
+        "mid": 0.45,
+        "high": 1.0
+      },
+      "why": "T1 and T2 will blend for 12 bars. T1 harmonic content is active \u2014 cutting T1 mids to 0.45 prevents harmonic pile-up as T2 rises. T1 is fading out, so no restore needed."
+    },
+    {
+      "action": {
+        "type": "bass_swap",
+        "track": "T1",
+        "at_bar": 72,
+        "incoming_track": "T2"
+      },
+      "t1_state": "T1 bar 72: 8 bars into fade window, T1 groove still active",
+      "t2_state": "T2 bar 16 in source (= 8 + 8 elapsed via loop): fade_in at 67% complete",
+      "why": "Midpoint of the 12-bar blend. T2 is prominent enough to take the bass. Swap at bar 72 (= 64 + 8) \u2014 roughly 67% through."
+    },
+    {
+      "action": {
+        "type": "eq",
+        "track": "T2",
+        "bar": 72,
+        "low": 1.0,
+        "mid": 1.0,
+        "high": 1.0
+      },
+      "why": "Restore T2 bass at swap point. T2 bass arrives as T1 bass cuts."
+    },
+    {
+      "action": {
+        "type": "fade_out",
+        "track": "T1",
+        "start_bar": 64,
+        "duration_bars": 12
+      },
+      "t1_state": "T1 bar 64: start fade simultaneously with T2 fade_in",
+      "why": "T1 fades out over the same 12-bar window T2 fades in. Equal-power crossfade feel."
+    },
+    {
+      "action": {
+        "type": "play",
+        "track": "T2",
+        "at_bar": 76,
+        "from_bar": 20
+      },
+      "t2_state": "T2 bar 20 (= from_bar 8 + duration_bars 12): T2 full groove, post-loop",
+      "why": "play(T2) fires at fade_in end (64 + 12 = 76). This BREAKS THE LOOP \u2014 T2 resumes from bar 20 (where it would be without the loop). The loop break creates a 'snap' moment: T2 was repeating the same 4 bars, then suddenly progresses. This is the energy release that makes the loop-fade technique more dynamic than a straight blend. from_bar=20 = fade_in.from_bar (8) + fade_in.duration_bars (12)."
+    }
+  ]
+}

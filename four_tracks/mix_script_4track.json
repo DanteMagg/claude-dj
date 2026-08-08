@@ -1,0 +1,53 @@
+{
+  "mix_title": "Claude DJ Set — 4-Track House 2026-04-30",
+  "reasoning": "Track order: T3(2B)→T2(12B)→T1(8A)→T4(5B). Key steps: 2→5→4 (starts with best compatibility, uses damage limitation on the harder transitions). Energy arc: 6→6→7→6 — T1 (Bear Like, −9.1 dBFS, energy 7) is the peak placed third for a classic warm-up/build/peak/cool-down arc. T2 (The Tribe, 208 bars) serves as the extended mid-set groove. T4 (I Feel Fire, 120.2 BPM) closes, time-stretched to ref BPM 126. All transitions are 16-bar blends. § checklist: (1) T3→T2: 2 steps, compatible, standard 16-bar blend. Vocals allowed in fade_in (2 steps OK per §2.1). Bass held via fade_in stems, swapped at bar 80. (2) T2→T1: 5 steps, incompatible, §3.6 damage limitation: bass_swap + mid-kill EQ at transition midpoint, vocals=0 in fade_in. (3) T1→T4: 4 steps, incompatible, same damage limitation protocol. All bass_swap at phrase boundaries (multiples of 8). Cue points used: T3 mix_in=8, T2 mix_in=16, T1 mix_in=24, T4 mix_in=0. Estimated set length ~10:50 at 126 BPM reference.",
+  "tracks": [
+    {
+      "id": "T3",
+      "path": "/Users/DantesFolder/Claude DJ/four_tracks/Lawrence James - Energy.mp3",
+      "bpm": 126.0,
+      "first_downbeat_s": 0.755
+    },
+    {
+      "id": "T2",
+      "path": "/Users/DantesFolder/Claude DJ/four_tracks/Dante Rives - The Tribe.wav",
+      "bpm": 126.0,
+      "first_downbeat_s": 0.731
+    },
+    {
+      "id": "T1",
+      "path": "/Users/DantesFolder/Claude DJ/four_tracks/Bear Like - For Your Love (Extended Mix).wav",
+      "bpm": 126.0,
+      "first_downbeat_s": 1.486
+    },
+    {
+      "id": "T4",
+      "path": "/Users/DantesFolder/Claude DJ/four_tracks/Roberto Marín Muñoz - I Feel Fire.mp3",
+      "bpm": 120.2,
+      "first_downbeat_s": 0.035
+    }
+  ],
+  "actions": [
+    { "type": "play",      "track": "T3", "at_bar": 0,   "from_bar": 8  },
+
+    { "type": "fade_in",   "track": "T2", "start_bar": 72,  "duration_bars": 16, "from_bar": 16,
+      "stems": { "drums": 0.9, "bass": 0.0, "vocals": 0.7, "other": 0.85 } },
+    { "type": "bass_swap", "track": "T3", "at_bar": 80,  "incoming_track": "T2" },
+    { "type": "fade_out",  "track": "T3", "start_bar": 80,  "duration_bars": 16 },
+    { "type": "play",      "track": "T2", "at_bar": 88,  "from_bar": 32 },
+
+    { "type": "fade_in",   "track": "T1", "start_bar": 160, "duration_bars": 16, "from_bar": 24,
+      "stems": { "drums": 0.9, "bass": 0.0, "vocals": 0.0, "other": 0.85 } },
+    { "type": "eq",        "track": "T2", "bar": 168, "low": 1.0, "mid": 0.0, "high": 1.0 },
+    { "type": "bass_swap", "track": "T2", "at_bar": 168, "incoming_track": "T1" },
+    { "type": "fade_out",  "track": "T2", "start_bar": 168, "duration_bars": 16 },
+    { "type": "play",      "track": "T1", "at_bar": 176, "from_bar": 40 },
+
+    { "type": "fade_in",   "track": "T4", "start_bar": 240, "duration_bars": 16, "from_bar": 0,
+      "stems": { "drums": 0.9, "bass": 0.0, "vocals": 0.0, "other": 0.85 } },
+    { "type": "eq",        "track": "T1", "bar": 248, "low": 1.0, "mid": 0.0, "high": 1.0 },
+    { "type": "bass_swap", "track": "T1", "at_bar": 248, "incoming_track": "T4" },
+    { "type": "fade_out",  "track": "T1", "start_bar": 248, "duration_bars": 16 },
+    { "type": "play",      "track": "T4", "at_bar": 256, "from_bar": 16 }
+  ]
+}

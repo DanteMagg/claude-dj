@@ -1,0 +1,13 @@
+{
+  "name": "peak_time",
+  "display_name": "Peak Time",
+  "description": "Plateau 8→10. Sustained high energy. Loop-and-build is the primary weapon.",
+  "directives": {
+    "preferred_overlap_bars": 16,
+    "preferred_technique": "blend",
+    "avoid_technique": [],
+    "bass_swap_placement": "early"
+  },
+  "example_ids": [],
+  "prompt_injection": "PEAK TIME SET. The loop-and-build is your primary weapon. Use it before every significant track introduction. The crowd is at maximum energy — sustain it with variety, not volume.\n\nLOOP-AND-BUILD SEQUENCE (use before dropping T2):\n1. Find T1's most driving 8-bar section (d > 0.7, r > 0.6 in zone data). Set loop(T1, loop_bars=8, loop_repeats=2).\n2. During the loop: eq(T1, mid=0.6) — T1 mids start pulling back over the 2 repeats. The crowd feels the loop tightening, anticipating a change.\n3. On the loop's final repeat: fade_in(T2, start_bar=<loop_bar+8>, duration_bars=8, stems={drums:1.0, bass:0.0, other:0.6}). T2 explodes in over the last loop repeat — full drums, no bass yet.\n4. bass_swap at bar +4 of the 8-bar fade (50% — early for peak energy). eq(T1, low=0.0). eq(T2, low=1.0). Energy must not dip.\n5. play(T2) at fade_in end. Kill T1 immediately — no lingering fade.\n\nDROP-TO-DROP SEQUENCE:\n1. fade_in(T2, duration_bars=8, stems={drums:1.0, bass:0.0, other:0.8}). Full energy entry, no bass.\n2. bass_swap at bar +4. Instantaneous.\n3. eq(T1, mid=0.3) at bass_swap bar. T1 mids drop fast.\n4. T1 fade_out over 8 bars simultaneous with T2 fade_in.\n\nOVERLAP: 16 bars standard. 8 bars for drop swaps. Never 32+ bars — that is warmup pacing.\n\nMICRO-VARIATION RULE: Do not use loop-and-build on consecutive transitions. After a loop-and-build, the next must be a straight 16-bar blend or drop swap.\n\nFORBIDDEN: 32-bar blends, patient stem buildup, bass_swap after 60% of window."
+}

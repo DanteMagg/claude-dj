@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude DJ — Design V2</title>
+<style>
+  :root {
+    --bg:       #090909;
+    --surface:  #101012;
+    --surface2: #141416;
+    --border:   rgba(255,255,255,0.065);
+    --border2:  rgba(255,255,255,0.1);
+    --text:     #e8e8e8;
+    --text2:    #888;
+    --text3:    #444;
+    --accent:   #ff5500;
+    --green:    #34c759;
+    --amber:    #c8961f;
+    --blue:     #3b82f6;
+    --mono:     'SF Mono', 'Geist Mono', 'JetBrains Mono', monospace;
+    --sans:     -apple-system, 'Geist Sans', 'Helvetica Neue', sans-serif;
+    --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #050506;
+    font-family: var(--sans);
+    color: var(--text);
+    padding: 24px;
+    min-height: 100vh;
+  }
+
+  h2 { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+  .desc { font-size: 12px; color: var(--text3); margin-bottom: 20px; letter-spacing: .01em; }
+
+  /* ── APP SHELL ── */
+  .app {
+    background: var(--bg);
+    border: 1px solid var(--border2);
+    border-radius: 10px;
+    overflow: hidden;
+    max-width: 980px;
+    margin: 0 auto 28px;
+    box-shadow: 0 40px 80px rgba(0,0,0,.8), 0 0 0 1px rgba(255,255,255,.04);
+  }
+
+  /* ── TOP BAR ── */
+  .topbar {
+    height: 36px;
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    border-bottom: 1px solid var(--border);
+    gap: 14px;
+    background: var(--surface);
+  }
+  .brand {
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: .3em;
+    color: var(--accent);
+    white-space: nowrap;
+  }
+  .topbar-sep { width: 1px; height: 14px; background: var(--border); }
+  .topbar-bpm {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+    white-space: nowrap;
+  }
+  .topbar-bpm small {
+    font-size: 9px;
+    color: var(--text3);
+    letter-spacing: .1em;
+    margin-left: 3px;
+  }
+  .live-dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--green);
+    animation: breathe 2s ease-in-out infinite;
+    flex-shrink: 0;
+  }
+  @keyframes breathe { 0%,100%{opacity:1} 50%{opacity:.3} }
+  .topbar-spacer { flex: 1; }
+  .topbar-model {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text3);
+    letter-spacing: .1em;
+    white-space: nowrap;
+  }
+
+  /* ── BODY ── */
+  .body { display: flex; height: 520px; overflow: hidden; }
+
+  /* ── LIBRARY ── */
+  .library {
+    width: 200px;
+    flex-shrink: 0;
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+  }
+  .lib-header {
+    padding: 10px 12px 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .lib-label {
+    font-family: var(--mono);
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: .18em;
+    color: var(--text3);
+    text-transform: uppercase;
+  }
+  .lib-scan {
+    font-size: 10px;
+    color: var(--accent);
+    font-weight: 600;
+    cursor: pointer;
+    opacity: .8;
+    transition: opacity 150ms;
+  }
+  .lib-scan:hover { opacity: 1; }
+  .lib-filter {
+    margin: 0 8px 8px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 5px 8px;
+    font-size: 10px;
+    font-family: var(--sans);
+    color: var(--text3);
+    width: calc(100% - 16px);
+    outline: none;
+  }
+  .lib-filter:focus { border-color: rgba(255,85,0,.4); color: var(--text2); }
+
+  .lib-tracks { overflow-y: auto; flex: 1; }
+  .lib-track {
+    padding: 7px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border);
+    transition: background 120ms;
+    position: relative;
+  }
+  .lib-track:hover { background: rgba(255,255,255,.025); }
+  .lib-track.is-playing {
+    background: rgba(255,85,0,.06);
+  }
+  .lib-track.is-playing::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 2px;
+    background: var(--accent);
+  }
+  .lib-track.is-next {
+    background: rgba(59,130,246,.04);
+  }
+  .lib-track.is-next::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 2px;
+    background: var(--blue);
+  }
+  .lib-title {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 2px;
+  }
+  .lib-meta {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text3);
+  }
+  .lib-wave {
+    height: 12px;
+    margin-top: 3px;
+    overflow: hidden;
+  }
+  .lib-wave canvas { display: block; }
+
+  /* ── MAIN ── */
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+  /* ── DECKS ── */
+  .decks {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .deck {
+    flex: 1;
+    padding: 14px 16px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+  }
+  .deck-a { border-right: 1px solid var(--border); }
+
+  .deck-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .deck-info { min-width: 0; flex: 1; }
+  .deck-badge {
+    font-family: var(--mono);
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-bottom: 4px;
+  }
+  .deck-badge.playing { color: var(--green); }
+  .deck-badge.planning { color: var(--amber); }
+  .deck-badge.ready    { color: var(--blue); }
+  .deck-badge.idle     { color: var(--text3); }
+
+  .deck-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.2;
+    margin-bottom: 2px;
+  }
+  .deck-artist {
+    font-size: 11px;
+    color: var(--text3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .deck-numbers {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    flex-shrink: 0;
+    font-family: var(--mono);
+  }
+  .deck-bpm {
+    font-size: 18px;
+    font-weight: 500;
+    color: var(--text);
+    line-height: 1;
+  }
+  .deck-bpm small { font-size: 9px; color: var(--text3); letter-spacing: .1em; }
+  .deck-key {
+    font-size: 10px;
+    color: var(--text3);
+  }
+
+  /* ── WAVEFORM ── */
+  .waveform-wrap {
+    flex: 1;
+    position: relative;
+    background: #0c0c0e;
+    border-radius: 2px;
+    overflow: hidden;
+    min-height: 64px;
+  }
+  .waveform-wrap canvas { display: block; width: 100%; height: 100%; }
+
+  /* Playhead overlay */
+  .wf-playhead {
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 1px;
+    background: rgba(255,255,255,.65);
+    pointer-events: none;
+    left: 28%;
+  }
+  .wf-playhead::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -3px;
+    width: 0; height: 0;
+    border-left: 3.5px solid transparent;
+    border-right: 3.5px solid transparent;
+    border-top: 5px solid rgba(255,255,255,.65);
+  }
+
+  .deck-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+  }
+  .deck-time {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text3);
+  }
+  .deck-entry {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--blue);
+  }
+
+  /* ── CROSSFADER ROW ── */
+  .xf-row {
+    height: 44px;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    gap: 12px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .xf-deck-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    color: var(--text3);
+    width: 10px;
+  }
+  .xf-track {
+    flex: 1;
+    height: 2px;
+    background: var(--surface2);
+    border-radius: 1px;
+    position: relative;
+  }
+  .xf-progress {
+    height: 100%;
+    width: 30%;
+    background: linear-gradient(90deg, var(--accent) 0%, var(--blue) 100%);
+    border-radius: 1px;
+    transition: width .8s var(--ease-out);
+  }
+  .xf-thumb {
+    position: absolute;
+    top: 50%;
+    left: 30%;
+    transform: translate(-50%, -50%);
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    background: var(--text);
+    border: 1.5px solid #333;
+    transition: left .8s var(--ease-out);
+    cursor: grab;
+  }
+  .xf-transport {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: 8px;
+  }
+  .xf-play {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    border: 1px solid var(--border2);
+    background: transparent;
+    color: var(--text2);
+    font-size: 10px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    transition: border-color 150ms, color 150ms, transform 160ms var(--ease-out);
+    flex-shrink: 0;
+  }
+  .xf-play:active { transform: scale(.95); }
+  .xf-play.active {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(255,85,0,.08);
+  }
+
+  /* ── CLAUDE PANEL ── */
+  .claude-panel {
+    flex-shrink: 0;
+    border-top: 0;
+    padding: 10px 16px 12px;
+    background: var(--surface);
+  }
+  .claude-header {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-bottom: 6px;
+  }
+  .claude-label {
+    font-family: var(--mono);
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: .18em;
+    color: var(--text3);
+    text-transform: uppercase;
+  }
+  .claude-label span { color: var(--accent); }
+  .claude-divider { flex: 1; height: 1px; background: var(--border); }
+  .claude-toggle {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text3);
+    cursor: pointer;
+    letter-spacing: .05em;
+  }
+
+  .claude-body {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 14px;
+    align-items: start;
+  }
+  .claude-text {
+    font-size: 11.5px;
+    color: var(--text2);
+    line-height: 1.65;
+    font-style: italic;
+  }
+  .claude-text strong { color: #aaa; font-style: normal; font-weight: 500; }
+
+  .claude-next {
+    flex-shrink: 0;
+    border: 1px solid var(--border2);
+    border-radius: 5px;
+    padding: 6px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 130px;
+  }
+  .cn-label {
+    font-family: var(--mono);
+    font-size: 8px;
+    letter-spacing: .12em;
+    color: var(--text3);
+    text-transform: uppercase;
+  }
+  .cn-status {
+    font-size: 11px;
+    color: var(--amber);
+    font-weight: 500;
+  }
+  .cn-pool {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text3);
+  }
+
+  /* ── ANNOTATIONS ── */
+  .annotations {
+    max-width: 980px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+  }
+  .ann {
+    background: #111;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+  }
+  .ann-num {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--accent);
+    letter-spacing: .1em;
+    margin-bottom: 5px;
+    text-transform: uppercase;
+  }
+  .ann h4 { font-size: 11px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+  .ann p  { font-size: 10.5px; color: var(--text3); line-height: 1.55; }
+</style>
+</head>
+<body>
+
+<h2>Design V2 — Cockpit Minimalism</h2>
+<p class="desc">Principles applied: no gradients · no cards · 1px dividers only · monospace numbers · single accent · cockpit density · frequency-colored canvas waveforms · SF-style spring physics</p>
+
+<div class="app">
+
+  <!-- Top bar -->
+  <div class="topbar">
+    <span class="brand">CLAUDE DJ</span>
+    <div class="topbar-sep"></div>
+    <span class="topbar-bpm">136.0<small>BPM</small></span>
+    <div class="live-dot"></div>
+    <span style="font-family:var(--mono);font-size:9px;color:var(--green);letter-spacing:.1em">LIVE</span>
+    <div class="topbar-spacer"></div>
+    <span class="topbar-model">claude-sonnet-4-6</span>
+  </div>
+
+  <div class="body">
+
+    <!-- Library panel -->
+    <div class="library">
+      <div class="lib-header">
+        <span class="lib-label">Library · 74</span>
+        <span class="lib-scan">+ Scan</span>
+      </div>
+      <input class="lib-filter" placeholder="filter…" readonly>
+      <div class="lib-tracks">
+        <div class="lib-track is-playing">
+          <div class="lib-title">Better Off Alone</div>
+          <div class="lib-meta">136 BPM · Am</div>
+          <div class="lib-wave"><canvas id="lw0" height="12"></canvas></div>
+        </div>
+        <div class="lib-track is-next">
+          <div class="lib-title">Twilight Zone</div>
+          <div class="lib-meta">129 BPM · Fm</div>
+          <div class="lib-wave"><canvas id="lw1" height="12"></canvas></div>
+        </div>
+        <div class="lib-track">
+          <div class="lib-title">Tribulations</div>
+          <div class="lib-meta">123 BPM · Dm</div>
+          <div class="lib-wave"><canvas id="lw2" height="12"></canvas></div>
+        </div>
+        <div class="lib-track">
+          <div class="lib-title">Blue Monday</div>
+          <div class="lib-meta">132 BPM · Em</div>
+          <div class="lib-wave"><canvas id="lw3" height="12"></canvas></div>
+        </div>
+        <div class="lib-track">
+          <div class="lib-title">Pump Up the Jam</div>
+          <div class="lib-meta">128 BPM · C#m</div>
+          <div class="lib-wave"><canvas id="lw4" height="12"></canvas></div>
+        </div>
+        <div class="lib-track">
+          <div class="lib-title">Around the World</div>
+          <div class="lib-meta">121 BPM · Am</div>
+          <div class="lib-wave"><canvas id="lw5" height="12"></canvas></div>
+        </div>
+        <div class="lib-track">
+          <div class="lib-title">Losing My Religion</div>
+          <div class="lib-meta">133 BPM · Gm</div>
+          <div class="lib-wave"><canvas id="lw6" height="12"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main area -->
+    <div class="main">
+
+      <!-- Decks -->
+      <div class="decks">
+
+        <!-- Deck A -->
+        <div class="deck deck-a">
+          <div class="deck-header">
+            <div class="deck-info">
+              <div class="deck-badge playing">
+                <div class="live-dot" style="background:var(--green)"></div>
+                DECK A — PLAYING
+              </div>
+              <div class="deck-title">Better Off Alone</div>
+              <div class="deck-artist">Alice Deejay</div>
+            </div>
+            <div class="deck-numbers">
+              <div class="deck-bpm">136.0<small> BPM</small></div>
+              <div class="deck-key">Am</div>
+            </div>
+          </div>
+
+          <div class="waveform-wrap" id="wfA-wrap">
+            <canvas id="wfA"></canvas>
+            <div class="wf-playhead"></div>
+          </div>
+
+          <div class="deck-footer">
+            <span class="deck-time">1:14 · <span style="color:var(--text3)">3:42</span></span>
+            <span class="deck-time" style="color:var(--text3)">OUT AT BAR 96</span>
+          </div>
+        </div>
+
+        <!-- Deck B -->
+        <div class="deck deck-b">
+          <div class="deck-header">
+            <div class="deck-info">
+              <div class="deck-badge ready">
+                DECK B — READY
+              </div>
+              <div class="deck-title">Twilight Zone</div>
+              <div class="deck-artist">2 Unlimited</div>
+            </div>
+            <div class="deck-numbers">
+              <div class="deck-bpm">129.2<small> BPM</small></div>
+              <div class="deck-key">Fm</div>
+            </div>
+          </div>
+
+          <div class="waveform-wrap" id="wfB-wrap">
+            <canvas id="wfB"></canvas>
+          </div>
+
+          <div class="deck-footer">
+            <span class="deck-time" style="color:var(--text3)">4:01</span>
+            <span class="deck-entry">IN AT BAR 96 · ~1:44</span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Crossfader -->
+      <div class="xf-row">
+        <span class="xf-deck-label" style="color:var(--accent)">A</span>
+        <div class="xf-track">
+          <div class="xf-progress" id="xfProgress"></div>
+          <div class="xf-thumb" id="xfThumb"></div>
+        </div>
+        <span class="xf-deck-label" style="color:var(--blue)">B</span>
+        <div class="xf-transport">
+          <div class="xf-play active" title="Pause">&#9646;&#9646;</div>
+        </div>
+      </div>
+
+      <!-- Claude reasoning -->
+      <div class="claude-panel">
+        <div class="claude-header">
+          <span class="claude-label">&#10022; <span>Claude</span>'s reasoning</span>
+          <div class="claude-divider"></div>
+          <span class="claude-toggle">collapse &#9650;</span>
+        </div>
+        <div class="claude-body">
+          <div class="claude-text">
+            Picking <strong>Twilight Zone</strong> next — the Fm key bridges naturally with Am over a 24-bar crossfade. I'm introducing Deck B's highs at bar 88, swapping the bass at 92, then letting A fade out by 96 while B builds. BPM difference of 6.8 is within rubberband range; no phasing artifacts expected. Energy stays consistent through the drop.
+          </div>
+          <div class="claude-next">
+            <div class="cn-label">Up next</div>
+            <div class="cn-status">Analyzing T3</div>
+            <div class="cn-pool">68 tracks in pool</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Annotations -->
+<div class="annotations">
+  <div class="ann">
+    <div class="ann-num">Waveform</div>
+    <h4>Canvas · frequency-colored</h4>
+    <p>Rendered on canvas at 2px-per-bar density. Low freq bars warm (orange), mids neutral (white), highs cool (teal). Top/bottom mirrored, smooth amplitude via weighted moving average.</p>
+  </div>
+  <div class="ann">
+    <div class="ann-num">Density</div>
+    <h4>Cockpit mode (density 8/10)</h4>
+    <p>No card containers — only 1px dividers. Monospace for all numbers. Sub-12px type for labels. Everything is a single, unified data surface with no wasted chrome.</p>
+  </div>
+  <div class="ann">
+    <div class="ann-num">Status</div>
+    <h4>Always readable at a glance</h4>
+    <p>Deck A badge: green + pulse dot. Deck B cycles ANALYZING (amber) → PLANNING (amber) → LOADING (amber) → READY (blue) with color semantics, not just text.</p>
+  </div>
+  <div class="ann">
+    <div class="ann-num">Reasoning</div>
+    <h4>Collapsed by default, expandable</h4>
+    <p>Claude's plan, key compatibility, BPM delta, transition strategy. Always shows "Up next" status panel. Collapsible so it doesn't dominate when user is just listening.</p>
+  </div>
+</div>
+
+<script>
+// ── Seeded PRNG ──
+function rng(seed) {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (Math.imul(31, h) + seed.charCodeAt(i)) | 0;
+  return () => { h ^= h << 13; h ^= h >> 17; h ^= h << 5; return (h >>> 0) / 0xffffffff; };
+}
+
+// ── Smooth amplitude (Gaussian-style weighted moving average) ──
+function smoothAmps(raw, radius = 5) {
+  return raw.map((_, i) => {
+    let sum = 0, w = 0;
+    for (let j = Math.max(0, i - radius); j <= Math.min(raw.length - 1, i + radius); j++) {
+      const d = Math.abs(j - i);
+      const weight = Math.exp(-(d * d) / (2 * radius * radius));
+      sum += raw[j] * weight;
+      w   += weight;
+    }
+    return sum / w;
+  });
+}
+
+// ── Frequency color (low = warm orange, mid = light gray, high = teal/blue) ──
+function freqColor(t, alpha = 1) {
+  // t: 0 (low) → 1 (high)
+  // Low:  #ff6030 (warm orange-red)
+  // Mid:  #c8c8cc (near white)
+  // High: #30c8c0 (teal)
+  let r, g, b;
+  if (t < 0.5) {
+    const s = t * 2; // 0→1 over low→mid
+    r = Math.round(255 + s * (200 - 255));
+    g = Math.round(96  + s * (200 -  96));
+    b = Math.round(48  + s * (204 -  48));
+  } else {
+    const s = (t - 0.5) * 2; // 0→1 over mid→high
+    r = Math.round(200 + s * (48 - 200));
+    g = Math.round(200 + s * (200 - 200));
+    b = Math.round(204 + s * (240 - 204));
+  }
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+// ── Draw large deck waveform (mirrored, freq-colored) ──
+function drawDeckWave(canvasId, wrapId, seed, playheadFrac = 0) {
+  const canvas = document.getElementById(canvasId);
+  const wrap   = document.getElementById(wrapId);
+  if (!canvas || !wrap) return;
+
+  const W = wrap.clientWidth;
+  const H = wrap.clientHeight;
+  if (!W || !H) return;
+
+  canvas.width  = W;
+  canvas.height = H;
+
+  const ctx    = canvas.getContext('2d');
+  const rand   = rng(seed);
+  const BARS   = Math.floor(W / 2);  // ~2px per bar
+
+  // Generate raw amplitude envelope
+  const raw = Array.from({ length: BARS }, (_, i) => {
+    const t = i / BARS;
+    // Musical energy profile: quiet intro, build, peak, gradual outro
+    const envelope = Math.sin(t * Math.PI) * 0.55 + 0.2;
+    return (0.1 + rand() * 0.9) * envelope;
+  });
+  const amps = smoothAmps(raw, 8);
+
+  const midY = H / 2;
+  const BAR_W = W / BARS;
+
+  ctx.clearRect(0, 0, W, H);
+
+  amps.forEach((amp, i) => {
+    const x = i * BAR_W;
+    const t = i / BARS; // frequency proxy (position in time ≈ spectral intensity)
+    const barH = amp * midY * 0.92;
+    const alpha = 0.55 + amp * 0.35;
+    const isPast = (i / BARS) < playheadFrac;
+
+    const col = isPast ? freqColor(t, alpha * 0.4) : freqColor(t, alpha);
+
+    // Top half
+    ctx.fillStyle = col;
+    ctx.fillRect(x, midY - barH, Math.max(1, BAR_W - 0.5), barH);
+
+    // Bottom half (mirrored, slightly dimmer)
+    ctx.fillStyle = isPast ? freqColor(t, alpha * 0.25) : freqColor(t, alpha * 0.55);
+    ctx.fillRect(x, midY, Math.max(1, BAR_W - 0.5), barH * 0.85);
+  });
+}
+
+// ── Draw library mini waveform ──
+function drawLibWave(canvasId, seed, isActive = false, isNext = false) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const W = canvas.parentElement.clientWidth;
+  const H = 12;
+  canvas.width  = W;
+  canvas.height = H;
+
+  const ctx  = canvas.getContext('2d');
+  const rand = rng(seed);
+  const BARS = Math.floor(W / 1.5);
+  const raw  = Array.from({ length: BARS }, () => 0.1 + rand() * 0.9);
+  const amps = smoothAmps(raw, 3);
+
+  amps.forEach((amp, i) => {
+    const x   = i * (W / BARS);
+    const barH = amp * (H * 0.8);
+    const col = isActive ? '#ff5500' : isNext ? '#3b82f6' : '#2a2a2e';
+    ctx.fillStyle = col;
+    ctx.globalAlpha = isActive ? 0.7 : isNext ? 0.55 : 0.55;
+    ctx.fillRect(x, H - barH, Math.max(0.8, W / BARS - 0.5), barH);
+  });
+  ctx.globalAlpha = 1;
+}
+
+// Animate crossfader slowly
+let xfPos = 0;
+function animateXF() {
+  xfPos = Math.sin(Date.now() / 8000) * 15 + 30; // oscillates 15–45%
+  document.getElementById('xfProgress').style.width = xfPos + '%';
+  document.getElementById('xfThumb').style.left = xfPos + '%';
+  requestAnimationFrame(animateXF);
+}
+
+// Animate playhead on deck A
+let phPos = 0.28;
+function animatePlayhead() {
+  phPos += 0.0001;
+  if (phPos > 0.95) phPos = 0.05;
+  const el = document.querySelector('.wf-playhead');
+  if (el) el.style.left = (phPos * 100) + '%';
+
+  // Redraw deck A occasionally to show consumed region
+  if (Math.random() < 0.01) {
+    drawDeckWave('wfA', 'wfA-wrap', 'better-off-alone-2024', phPos);
+  }
+  requestAnimationFrame(animatePlayhead);
+}
+
+// ── Init ──
+window.addEventListener('load', () => {
+  // Slight delay to let layout settle
+  setTimeout(() => {
+    drawDeckWave('wfA', 'wfA-wrap', 'better-off-alone-2024', 0.28);
+    drawDeckWave('wfB', 'wfB-wrap', 'twilight-zone-2024', 0);
+
+    const libSeeds = ['better-off-alone','twilight-zone','tribulations','blue-monday','pump-up-jam','around-world','losing-religion'];
+    libSeeds.forEach((s, i) => drawLibWave('lw' + i, s, i === 0, i === 1));
+
+    animateXF();
+    animatePlayhead();
+  }, 80);
+});
+
+window.addEventListener('resize', () => {
+  drawDeckWave('wfA', 'wfA-wrap', 'better-off-alone-2024', phPos);
+  drawDeckWave('wfB', 'wfB-wrap', 'twilight-zone-2024', 0);
+});
+</script>
+</body>
+</html>

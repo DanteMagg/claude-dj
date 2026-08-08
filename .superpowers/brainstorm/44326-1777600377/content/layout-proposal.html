@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude DJ — Layout Proposal</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0a0a0a;
+    color: #e0e0e0;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+    font-size: 13px;
+    padding: 24px;
+  }
+  h2 { font-size: 16px; font-weight: 600; color: #fff; margin-bottom: 6px; }
+  .subtitle { color: #666; font-size: 13px; margin-bottom: 24px; }
+
+  /* ── APP MOCKUP ── */
+  .app {
+    background: #111;
+    border: 1px solid #222;
+    border-radius: 10px;
+    overflow: hidden;
+    max-width: 900px;
+    margin: 0 auto 32px;
+  }
+
+  /* Top bar */
+  .topbar {
+    background: #161616;
+    border-bottom: 1px solid #222;
+    padding: 0 16px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .topbar-brand {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .25em;
+    color: #ff5f00;
+    font-family: 'SF Mono', monospace;
+  }
+  .topbar-status {
+    font-size: 11px;
+    color: #888;
+    font-family: 'SF Mono', monospace;
+  }
+  .topbar-status .dot {
+    width: 6px; height: 6px;
+    background: #30d158;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 5px;
+  }
+  .topbar-spacer { flex: 1; }
+  .topbar-btn {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 12px;
+    border-radius: 4px;
+    background: #ff5f00;
+    color: white;
+    border: none;
+    cursor: pointer;
+  }
+
+  /* Body = library | main */
+  .body { display: flex; height: 560px; }
+
+  /* Library panel */
+  .library {
+    width: 220px;
+    flex-shrink: 0;
+    border-right: 1px solid #1e1e1e;
+    display: flex;
+    flex-direction: column;
+    background: #0f0f0f;
+  }
+  .lib-header {
+    padding: 10px 12px 8px;
+    border-bottom: 1px solid #1e1e1e;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .lib-title {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: .14em;
+    color: #555;
+    text-transform: uppercase;
+    font-family: 'SF Mono', monospace;
+  }
+  .lib-scan {
+    font-size: 10px;
+    color: #ff5f00;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .lib-filter {
+    margin: 8px;
+    background: #1a1a1a;
+    border: 1px solid #222;
+    border-radius: 4px;
+    padding: 5px 8px;
+    font-size: 11px;
+    color: #888;
+  }
+  .lib-track {
+    padding: 6px 12px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    border-bottom: 1px solid #171717;
+  }
+  .lib-track.playing { background: rgba(255,95,0,.07); border-left: 2px solid #ff5f00; }
+  .lib-track.queued  { background: rgba(0,180,255,.04); border-left: 2px solid #00b4ff; }
+  .lib-track-title { font-size: 11px; font-weight: 500; color: #ccc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lib-track-meta  { font-size: 9px; color: #555; font-family: 'SF Mono', monospace; }
+
+  /* Waveform mini */
+  .lib-wave {
+    height: 14px;
+    display: flex;
+    align-items: center;
+    gap: 0.5px;
+    overflow: hidden;
+    margin-top: 2px;
+  }
+  .lib-wave-bar { flex: 1; border-radius: 1px; background: #2a2a2a; }
+
+  /* Main area */
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+  /* Two decks */
+  .decks {
+    display: flex;
+    border-bottom: 1px solid #1e1e1e;
+  }
+
+  .deck {
+    flex: 1;
+    padding: 14px 16px 12px;
+    min-width: 0;
+  }
+  .deck-a { border-right: 1px solid #1e1e1e; }
+
+  .deck-label {
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: .2em;
+    color: #444;
+    text-transform: uppercase;
+    font-family: 'SF Mono', monospace;
+    margin-bottom: 6px;
+  }
+  .deck-label.a { color: #ff5f00; }
+  .deck-label.b { color: #00b4ff; }
+
+  .deck-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 2px;
+  }
+  .deck-meta {
+    font-size: 10px;
+    color: #555;
+    font-family: 'SF Mono', monospace;
+    margin-bottom: 10px;
+  }
+
+  /* Rekordbox-style waveform */
+  .waveform {
+    height: 52px;
+    background: #0d0d0d;
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+    margin-bottom: 8px;
+  }
+  .wf-canvas {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+  }
+  .wf-bar-wrap {
+    flex: 1;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0px;
+  }
+  /* Rekordbox uses mirrored waveform (top + bottom) */
+  .wf-top, .wf-bot {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.5px;
+    overflow: hidden;
+  }
+  .wf-top { height: 50%; align-items: flex-end; }
+  .wf-bot { height: 50%; align-items: flex-start; transform: scaleY(-1); }
+  .wf-b { width: 2px; border-radius: 1px 1px 0 0; flex-shrink: 0; }
+
+  /* Playhead */
+  .wf-playhead {
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 1px;
+    background: rgba(255,255,255,.7);
+    left: 30%;
+  }
+  .wf-playhead::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -3px;
+    border: 3px solid transparent;
+    border-top: 4px solid rgba(255,255,255,.7);
+  }
+
+  /* Deck status badge */
+  .deck-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    font-family: 'SF Mono', monospace;
+  }
+  .deck-status.playing { color: #30d158; }
+  .deck-status.planning { color: #ffd60a; }
+  .deck-status.ready { color: #00b4ff; }
+  .deck-status .pulse {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: currentColor;
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+  /* Crossfader area */
+  .crossfader {
+    border-top: 1px solid #1e1e1e;
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    background: #0f0f0f;
+  }
+  .xf-label { font-size: 9px; color: #444; font-family: 'SF Mono', monospace; letter-spacing: .1em; white-space: nowrap; }
+  .xf-track {
+    flex: 1;
+    height: 3px;
+    background: #222;
+    border-radius: 2px;
+    position: relative;
+  }
+  .xf-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #ff5f00, #00b4ff);
+    border-radius: 2px;
+    width: 30%;
+  }
+  .xf-thumb {
+    position: absolute;
+    top: 50%;
+    left: 30%;
+    transform: translate(-50%, -50%);
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid #333;
+    box-shadow: 0 0 6px rgba(0,0,0,.5);
+  }
+  .xf-bpm {
+    font-family: 'SF Mono', monospace;
+    font-size: 18px;
+    font-weight: 600;
+    color: #fff;
+    white-space: nowrap;
+  }
+  .xf-bpm span { font-size: 9px; color: #444; letter-spacing: .1em; }
+  .xf-play {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: #1e1e1e;
+    border: 1.5px solid #333;
+    color: #ff5f00;
+    font-size: 12px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+  }
+
+  /* Claude reasoning panel */
+  .claude-panel {
+    border-top: 1px solid #1e1e1e;
+    padding: 10px 16px;
+    background: #0c0c0c;
+    flex-shrink: 0;
+  }
+  .claude-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .claude-badge {
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: .14em;
+    color: #888;
+    text-transform: uppercase;
+    font-family: 'SF Mono', monospace;
+  }
+  .claude-badge em {
+    color: #ff5f00;
+    font-style: normal;
+  }
+  .claude-text {
+    font-size: 11px;
+    color: #666;
+    line-height: 1.55;
+    font-style: italic;
+  }
+  .claude-text strong { color: #999; font-style: normal; font-weight: 500; }
+
+  /* Next up pill */
+  .next-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(0,180,255,.08);
+    border: 1px solid rgba(0,180,255,.2);
+    border-radius: 20px;
+    padding: 2px 10px 2px 6px;
+    font-size: 10px;
+    color: #00b4ff;
+    margin-top: 6px;
+  }
+  .next-pill .arrow { opacity: .6; }
+
+  /* Annotation callouts */
+  .callouts { max-width: 900px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 32px; }
+  .callout {
+    background: #151515;
+    border: 1px solid #222;
+    border-radius: 6px;
+    padding: 12px 14px;
+  }
+  .callout-num { font-size: 10px; font-weight: 700; color: #ff5f00; font-family: 'SF Mono', monospace; margin-bottom: 4px; }
+  .callout h4 { font-size: 12px; font-weight: 600; color: #ccc; margin-bottom: 4px; }
+  .callout p { font-size: 11px; color: #666; line-height: 1.5; }
+</style>
+</head>
+<body>
+
+<h2>Proposed Layout — Rekordbox-Inspired Minimalist</h2>
+<p class="subtitle">Permanent library left · Two decks top · Crossfader center · Claude reasoning bottom · Smooth mirrored waveforms</p>
+
+<!-- ── MOCKUP ── -->
+<div class="app">
+
+  <!-- Top bar -->
+  <div class="topbar">
+    <span class="topbar-brand">CLAUDE DJ</span>
+    <span class="topbar-status"><span class="dot"></span>PLAYING · 136.0 BPM</span>
+    <div class="topbar-spacer"></div>
+    <button class="topbar-btn">◈ New Mix</button>
+  </div>
+
+  <div class="body">
+
+    <!-- Library -->
+    <div class="library">
+      <div class="lib-header">
+        <span class="lib-title">Library · 74</span>
+        <span class="lib-scan">+ Scan</span>
+      </div>
+      <div class="lib-filter">🔍 filter tracks…</div>
+
+      <div class="lib-track playing">
+        <div class="lib-track-title">Better Off Alone</div>
+        <div class="lib-track-meta">136 · Am</div>
+        <div class="lib-wave" id="w1"></div>
+      </div>
+      <div class="lib-track queued">
+        <div class="lib-track-title">Twilight Zone</div>
+        <div class="lib-track-meta">129 · Fm</div>
+        <div class="lib-wave" id="w2"></div>
+      </div>
+      <div class="lib-track">
+        <div class="lib-track-title">Tribulations</div>
+        <div class="lib-track-meta">123 · Dm</div>
+        <div class="lib-wave" id="w3"></div>
+      </div>
+      <div class="lib-track">
+        <div class="lib-track-title">Blue Monday</div>
+        <div class="lib-track-meta">132 · Em</div>
+        <div class="lib-wave" id="w4"></div>
+      </div>
+      <div class="lib-track">
+        <div class="lib-track-title">One More Time</div>
+        <div class="lib-track-meta">126 · Bm</div>
+        <div class="lib-wave" id="w5"></div>
+      </div>
+    </div>
+
+    <!-- Main content -->
+    <div class="main">
+
+      <!-- Two decks -->
+      <div class="decks" style="flex:1;min-height:0">
+
+        <!-- Deck A -->
+        <div class="deck deck-a">
+          <div class="deck-label a">DECK A · PLAYING</div>
+          <div class="deck-title">Better Off Alone</div>
+          <div class="deck-meta">Alice Deejay · 136.0 BPM · Am · 3:42</div>
+          <div class="waveform">
+            <div class="wf-canvas">
+              <div class="wf-bar-wrap" id="wfA"></div>
+            </div>
+            <div class="wf-playhead"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span class="deck-status playing"><span class="pulse"></span>PLAYING</span>
+            <span style="font-family:'SF Mono',monospace;font-size:10px;color:#444">1:12 / 3:42</span>
+          </div>
+        </div>
+
+        <!-- Deck B -->
+        <div class="deck deck-b">
+          <div class="deck-label b">DECK B · READY</div>
+          <div class="deck-title">Twilight Zone</div>
+          <div class="deck-meta">2 Unlimited · 129.2 BPM · Fm · 4:01</div>
+          <div class="waveform">
+            <div class="wf-canvas">
+              <div class="wf-bar-wrap" id="wfB"></div>
+            </div>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span class="deck-status ready">READY AT BAR 96</span>
+            <span style="font-size:10px;color:#555">in ~1:44</span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Crossfader row -->
+      <div class="crossfader">
+        <span class="xf-label">A</span>
+        <div class="xf-track">
+          <div class="xf-fill"></div>
+          <div class="xf-thumb"></div>
+        </div>
+        <span class="xf-label">B</span>
+
+        <div style="width:1px;height:20px;background:#222;margin:0 8px"></div>
+
+        <div class="xf-bpm">136.0 <span>BPM</span></div>
+        <div style="flex:1"></div>
+        <div class="xf-play">▶</div>
+      </div>
+
+      <!-- Claude reasoning -->
+      <div class="claude-panel">
+        <div class="claude-header">
+          <span class="claude-badge">✦ <em>CLAUDE'S REASONING</em></span>
+          <div style="flex:1"></div>
+          <span style="font-size:10px;color:#444;cursor:pointer">▼ expand</span>
+        </div>
+        <div class="claude-text">
+          <strong>Twilight Zone</strong> fits well here — the Fm key blends with Am over a 16-bar bass-swap transition at bar 96. I'm dropping the bass on Deck A at bar 88, introducing B's high-end at 90, then completing the swap at 96 once the energy peaks. Expecting a <strong>smooth blend</strong>, energy stays consistent.
+        </div>
+        <div class="next-pill">
+          <span class="arrow">→</span>
+          Next up Claude is picking · <strong>2 candidates</strong> in library
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Callouts -->
+<div class="callouts">
+  <div class="callout">
+    <div class="callout-num">WAVEFORM</div>
+    <h4>Mirrored + frequency-colored</h4>
+    <p>Rekordbox-style mirrored waveform. Low freqs = orange/red, mids = white, highs = blue. Smooth via bezier curves, not jagged bars.</p>
+  </div>
+  <div class="callout">
+    <div class="callout-num">TWO DECKS</div>
+    <h4>A playing · B always preparing</h4>
+    <p>Deck A shows what's playing now with live playhead. Deck B shows the next track loading, its entry bar, and countdown to transition.</p>
+  </div>
+  <div class="callout">
+    <div class="callout-num">CLAUDE PANEL</div>
+    <h4>Reasoning always visible</h4>
+    <p>Collapsible panel shows why Claude picked the track, the transition strategy, and what it's doing next. Updated after every plan.</p>
+  </div>
+</div>
+
+<script>
+// Generate smooth waveforms
+function makeWave(containerId, color, seed, height = 52, bars = 80, mirrored = true) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  // Seeded pseudo-random
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (Math.imul(31, h) + seed.charCodeAt(i)) | 0;
+  function rand() {
+    h ^= h << 13; h ^= h >> 17; h ^= h << 5;
+    return (h >>> 0) / 0xffffffff;
+  }
+
+  // Generate smooth amplitudes using moving average
+  const raw = Array.from({ length: bars }, () => 0.1 + rand() * 0.9);
+  const smoothed = raw.map((v, i) => {
+    const window = 4;
+    let sum = 0, count = 0;
+    for (let j = Math.max(0, i - window); j <= Math.min(raw.length - 1, i + window); j++) {
+      sum += raw[j]; count++;
+    }
+    return sum / count;
+  });
+
+  if (mirrored) {
+    // Rekordbox-style: top half + bottom half mirrored
+    const topDiv = document.createElement('div');
+    topDiv.className = 'wf-top';
+    const botDiv = document.createElement('div');
+    botDiv.className = 'wf-bot';
+
+    smoothed.forEach((amp, i) => {
+      const pct = i / bars;
+      // Frequency coloring: low = warm, high = cool
+      const r = Math.round(255 * (1 - pct * 0.5));
+      const g = Math.round(80 + pct * 100);
+      const b = Math.round(pct * 220);
+      const col = `rgb(${r},${g},${b})`;
+      const opacity = 0.55 + amp * 0.45;
+
+      [topDiv, botDiv].forEach(div => {
+        const bar = document.createElement('div');
+        bar.className = 'wf-b';
+        bar.style.height = `${amp * 100}%`;
+        bar.style.background = col;
+        bar.style.opacity = opacity;
+        div.appendChild(bar);
+      });
+    });
+
+    container.appendChild(topDiv);
+    container.appendChild(botDiv);
+  } else {
+    // Flat mini waveform for library
+    const div = document.createElement('div');
+    div.style.cssText = 'display:flex;align-items:center;gap:0.5px;height:100%;width:100%';
+    smoothed.forEach((amp) => {
+      const bar = document.createElement('div');
+      bar.style.cssText = `flex:1;height:${amp * 100}%;background:${color};border-radius:1px;opacity:0.6`;
+      div.appendChild(bar);
+    });
+    container.appendChild(div);
+  }
+}
+
+// Big deck waveforms
+makeWave('wfA', '#ff5f00', 'better-off-alone');
+makeWave('wfB', '#00b4ff', 'twilight-zone');
+
+// Library mini waveforms
+['w1','w2','w3','w4','w5'].forEach((id, i) => {
+  const colors = ['#ff5f00', '#00b4ff', '#666', '#666', '#666'];
+  const seeds = ['better-off-alone','twilight-zone','tribulations','blue-monday','one-more-time'];
+  const container = document.getElementById(id);
+  if (!container) return;
+  let h = 0;
+  for (let c of seeds[i]) h = (Math.imul(31, h) + c.charCodeAt(0)) | 0;
+  function r() { h ^= h << 13; h ^= h >> 17; h ^= h << 5; return (h >>> 0) / 0xffffffff; }
+  const raw = Array.from({length:30}, () => 0.1 + r() * 0.9);
+  const smoothed = raw.map((v, i) => {
+    let s = 0, n = 0;
+    for (let j = Math.max(0,i-2); j <= Math.min(raw.length-1,i+2); j++) { s += raw[j]; n++; }
+    return s/n;
+  });
+  smoothed.forEach(amp => {
+    const bar = document.createElement('div');
+    bar.className = 'lib-wave-bar';
+    bar.style.height = `${amp * 100}%`;
+    bar.style.background = colors[i] || '#2a2a2a';
+    bar.style.opacity = '0.7';
+    container.appendChild(bar);
+  });
+});
+</script>
+
+</body>
+</html>

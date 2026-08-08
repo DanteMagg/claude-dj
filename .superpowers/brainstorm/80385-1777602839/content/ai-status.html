@@ -1,0 +1,289 @@
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap');
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Geist', system-ui, sans-serif; }
+
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+
+  .s-card {
+    border: 2px solid #222;
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color .15s;
+    background: #0a0a0a;
+  }
+  .s-card:hover { border-color: #3a3a3a; }
+  .s-card.selected { border-color: #ff5f00; box-shadow: 0 0 0 1px #ff5f00; }
+
+  .s-label {
+    font-size: 10px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase;
+    padding: 8px 14px; border-bottom: 1px solid #181818; color: #555;
+    display: flex; justify-content: space-between;
+    font-family: 'Geist Mono', monospace;
+  }
+  .s-card.selected .s-label { color: #ff5f00; }
+  .s-tag { font-size: 9px; padding: 2px 6px; border-radius: 3px; background: #181818; color: #444; }
+
+  .s-preview { padding: 16px; background: #080808; }
+
+  /* ── A: Terminal log ── */
+  .term-box {
+    background: #060606;
+    border: 1px solid #1c1c1c;
+    border-radius: 4px;
+    padding: 10px 12px;
+    font-family: 'Geist Mono', monospace;
+    font-size: 11px;
+    line-height: 1.7;
+  }
+  .term-line { display: flex; gap: 8px; }
+  .term-ts   { color: #2a2a2a; flex-shrink: 0; }
+  .term-tag  { padding: 0 5px; border-radius: 2px; font-size: 9px; font-weight: 600; letter-spacing: .08em; }
+  .t-analyze { background: rgba(255,214,10,.1); color: #ffd60a; }
+  .t-plan    { background: rgba(191,90,242,.1); color: #bf5af2; }
+  .t-load    { background: rgba(0,180,255,.1); color: #00b4ff; }
+  .t-ready   { background: rgba(48,209,88,.1); color: #30d158; }
+  .term-msg  { color: #888; }
+  .term-msg em { color: #ccc; font-style: normal; }
+  .cursor { display: inline-block; width: 7px; height: 11px; background: #ff5f00; vertical-align: middle; animation: blink 1s step-end infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* ── B: Phase stepper ── */
+  .phase-deck {
+    border: 1px solid #1c1c1c;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .phase-header {
+    padding: 8px 12px;
+    background: rgba(0,180,255,.05);
+    border-bottom: 1px solid #1c1c1c;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .phase-tag { font-size: 9px; font-weight: 700; letter-spacing: .12em; color: #00b4ff; font-family: 'Geist Mono', monospace; }
+  .phase-title { font-size: 12px; font-weight: 500; color: #666; }
+
+  .stepper { display: flex; padding: 12px 14px; gap: 0; }
+  .step { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; position: relative; }
+  .step:not(:last-child)::after {
+    content: ''; position: absolute; top: 10px; left: 50%; width: 100%;
+    height: 1px; background: #1e1e1e;
+  }
+  .step.done::after  { background: #2a2a2a; }
+  .step.active::after { background: #1e1e1e; }
+  .step-dot {
+    width: 20px; height: 20px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px; font-weight: 700; z-index: 1;
+    font-family: 'Geist Mono', monospace;
+  }
+  .step.done   .step-dot { background: #1e2a1e; border: 1px solid #30d158; color: #30d158; }
+  .step.active .step-dot { background: rgba(191,90,242,.15); border: 1px solid #bf5af2; color: #bf5af2;
+    box-shadow: 0 0 8px rgba(191,90,242,.3); animation: pulse-ring 1.5s ease-in-out infinite; }
+  .step.idle   .step-dot { background: #111; border: 1px solid #222; color: #333; }
+  @keyframes pulse-ring { 0%,100%{box-shadow:0 0 0 0 rgba(191,90,242,.3)} 50%{box-shadow:0 0 0 4px rgba(191,90,242,.1)} }
+  .step-name { font-size: 9px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+    font-family: 'Geist Mono', monospace; }
+  .step.done   .step-name { color: #30d158; }
+  .step.active .step-name { color: #bf5af2; }
+  .step.idle   .step-name { color: #2a2a2a; }
+
+  .phase-reason {
+    padding: 8px 14px 12px; font-size: 11px; color: #555; line-height: 1.5;
+    border-top: 1px solid #131313;
+    font-family: 'Geist', system-ui, sans-serif;
+  }
+  .phase-reason em { color: #888; font-style: normal; }
+
+  /* ── C: Typewriter reasoning ── */
+  .tw-deck {
+    border: 1px solid #1c1c1c; border-radius: 4px; overflow: hidden;
+  }
+  .tw-header {
+    padding: 8px 12px; background: #0d0d0d; border-bottom: 1px solid #181818;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .tw-badge {
+    font-size: 9px; font-weight: 700; letter-spacing: .1em;
+    padding: 2px 7px; border-radius: 3px;
+    background: rgba(191,90,242,.12); color: #bf5af2;
+    font-family: 'Geist Mono', monospace;
+    animation: badge-glow 2s ease-in-out infinite;
+  }
+  @keyframes badge-glow { 0%,100%{opacity:.7} 50%{opacity:1} }
+  .tw-title { font-size: 12px; color: #444; }
+  .tw-body {
+    padding: 10px 14px 12px; font-size: 11px; color: #777; line-height: 1.7;
+    font-family: 'Geist', system-ui, sans-serif;
+    min-height: 72px;
+  }
+  .tw-body em { color: #bbb; font-style: normal; font-weight: 500; }
+  .tw-body .hi { color: #ff5f00; }
+  .tw-body .hb { color: #00b4ff; }
+
+  /* ── D: Inline badge only ── */
+  .deck-row {
+    display: flex; gap: 8px; align-items: stretch;
+  }
+  .mini-deck {
+    flex: 1; padding: 10px 12px; background: #0d0d0d;
+    border: 1px solid #1c1c1c; border-radius: 4px;
+  }
+  .md-label { font-size: 9px; font-weight: 700; letter-spacing: .12em; color: #333; text-transform: uppercase; font-family: 'Geist Mono', monospace; }
+  .md-title { font-size: 12px; font-weight: 500; margin-top: 4px; }
+  .md-meta  { font-size: 10px; margin-top: 2px; font-family: 'Geist Mono', monospace; }
+  .md-status {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 9px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
+    padding: 3px 8px; border-radius: 3px; margin-top: 6px;
+    font-family: 'Geist Mono', monospace;
+  }
+  .status-dot { width: 5px; height: 5px; border-radius: 50%; animation: dot-pulse 1.2s ease-in-out infinite; }
+  @keyframes dot-pulse { 0%,100%{transform:scale(1);opacity:1} 50%{transform:scale(1.5);opacity:.5} }
+  .st-plan { background: rgba(191,90,242,.1); color: #bf5af2; }
+  .st-plan .status-dot { background: #bf5af2; }
+  .st-load { background: rgba(0,180,255,.1); color: #00b4ff; }
+  .st-load .status-dot { background: #00b4ff; }
+
+  .s-desc { padding: 10px 14px 14px; border-top: 1px solid #161616; }
+  .s-desc h3 { font-size: 12px; font-weight: 600; color: #ddd; margin-bottom: 3px; }
+  .s-desc p  { font-size: 11px; color: #555; line-height: 1.55; }
+</style>
+
+<h2>Claude Status Display</h2>
+<p class="subtitle">While Claude plans the next transition — how should the UI show what's happening?</p>
+
+<div class="compare">
+
+  <!-- A: Terminal log -->
+  <div class="s-card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="s-label">A — Live Log <span class="s-tag">Terminal-style</span></div>
+    <div class="s-preview">
+      <div class="term-box">
+        <div class="term-line">
+          <span class="term-ts">00:41</span>
+          <span class="term-tag t-analyze">ANALYZE</span>
+          <span class="term-msg">Loading <em>Lawrence James — Energy</em></span>
+        </div>
+        <div class="term-line">
+          <span class="term-ts">00:43</span>
+          <span class="term-tag t-analyze">ANALYZE</span>
+          <span class="term-msg">124 BPM · 9B · energy 8 · 128 bars</span>
+        </div>
+        <div class="term-line">
+          <span class="term-ts">00:44</span>
+          <span class="term-tag t-plan">CLAUDE</span>
+          <span class="term-msg">Planning transition at bar 96…</span>
+        </div>
+        <div class="term-line">
+          <span class="term-ts">00:46</span>
+          <span class="term-tag t-plan">CLAUDE</span>
+          <span class="term-msg">Key match: 8A→9B (compatible). Drop at bar 112.</span>
+        </div>
+        <div class="term-line">
+          <span class="term-ts">00:47</span>
+          <span class="term-tag t-load">LOAD</span>
+          <span class="term-msg">Stretching to 128 BPM… <span class="cursor"></span></span>
+        </div>
+      </div>
+    </div>
+    <div class="s-desc">
+      <h3>Scrolling timestamped log</h3>
+      <p>Shows exactly what's happening, when. Feels like watching Claude think in real time. Great for power users who want to see the reasoning.</p>
+    </div>
+  </div>
+
+  <!-- B: Phase stepper -->
+  <div class="s-card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="s-label">B — Phase Steps <span class="s-tag">Progress UI</span></div>
+    <div class="s-preview">
+      <div class="phase-deck">
+        <div class="phase-header">
+          <span class="phase-tag">DECK B</span>
+          <span class="phase-title">Lawrence James — Energy</span>
+        </div>
+        <div class="stepper">
+          <div class="step done">
+            <div class="step-dot">✓</div>
+            <div class="step-name">Analyze</div>
+          </div>
+          <div class="step active">
+            <div class="step-dot">◈</div>
+            <div class="step-name">Plan</div>
+          </div>
+          <div class="step idle">
+            <div class="step-dot">○</div>
+            <div class="step-name">Load</div>
+          </div>
+          <div class="step idle">
+            <div class="step-dot">○</div>
+            <div class="step-name">Ready</div>
+          </div>
+        </div>
+        <div class="phase-reason">
+          <em>Choosing transition point…</em> Key 8A→9B compatible. Energy builds to 8 at bar 112 — good drop candidate.
+        </div>
+      </div>
+    </div>
+    <div class="s-desc">
+      <h3>Four-phase progress stepper</h3>
+      <p>Clean, scannable. You can see at a glance where Claude is in the pipeline. Reason text appears below. Less verbose than a log.</p>
+    </div>
+  </div>
+
+  <!-- C: Typewriter reasoning -->
+  <div class="s-card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="s-label">C — Reasoning Reveal <span class="s-tag">AI-forward</span></div>
+    <div class="s-preview">
+      <div class="tw-deck">
+        <div class="tw-header">
+          <span class="tw-badge">PLANNING</span>
+          <span class="tw-title">Deck B · Lawrence James — Energy</span>
+        </div>
+        <div class="tw-body">
+          Both tracks are in compatible keys (<span class="hi">8A</span> → <span class="hb">9B</span>).
+          Energy peaks at bar <em>112</em> — I'll bring <span class="hb">Energy</span> in under the
+          kick on the drop, swap the bass at bar <em>120</em>, then full mix-in by
+          bar <em>128</em>.
+          <span class="cursor"></span>
+        </div>
+      </div>
+    </div>
+    <div class="s-desc">
+      <h3>Claude's reasoning types in as it streams</h3>
+      <p>Shows Claude's actual thinking — not just status. Makes the AI feel present and intentional. Closest to "watching a DJ think out loud."</p>
+    </div>
+  </div>
+
+  <!-- D: Inline badge -->
+  <div class="s-card" data-choice="d" onclick="toggleSelect(this)">
+    <div class="s-label">D — Inline Badge <span class="s-tag">Minimal</span></div>
+    <div class="s-preview">
+      <div class="deck-row">
+        <div class="mini-deck" style="border-color:rgba(255,95,0,.2)">
+          <div class="md-label" style="color:#ff5f00">Deck A · Playing</div>
+          <div class="md-title" style="color:#e8e8e8">Bear Like — For Your Love</div>
+          <div class="md-meta" style="color:#ff5f00">128 BPM · 8A</div>
+        </div>
+        <div class="mini-deck" style="border-color:rgba(191,90,242,.2)">
+          <div class="md-label" style="color:#bf5af2">Deck B · Up Next</div>
+          <div class="md-title" style="color:#555">Lawrence James — Energy</div>
+          <div class="md-meta" style="color:#333">124 BPM · 9B</div>
+          <div class="md-status st-plan">
+            <span class="status-dot"></span> Planning
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="s-desc">
+      <h3>Just a pulsing status badge on Deck B</h3>
+      <p>No separate panel. Status changes: Analyzing → Planning → Loading → Ready. Clean, unobtrusive. But you don't see Claude's work.</p>
+    </div>
+  </div>
+
+</div>
+
+<p style="margin-top:16px;font-size:11px;color:#555;text-align:center">
+  These show Deck B's status while Claude plans the next transition
+</p>

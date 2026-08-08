@@ -1,0 +1,13 @@
+{
+  "name": "afterhours",
+  "display_name": "Afterhours",
+  "description": "Low sustained plateau 3→5. 4am philosophy. Invisible transitions. Heavy loop use.",
+  "directives": {
+    "preferred_overlap_bars": 32,
+    "preferred_technique": "blend",
+    "avoid_technique": ["cut", "drop_swap"],
+    "bass_swap_placement": "late"
+  },
+  "example_ids": [],
+  "prompt_injection": "AFTERHOURS SET. 4am philosophy. The crowd is deep in the music, not dancing to peaks. Transitions must be invisible. Long tracks, long blends, heavy loop usage. Never introduce energy — sustain a trance.\n\nFULL CROSS-DECK LOOP SWAP SEQUENCE:\n1. Well before the transition, start a loop on T2: loop(T2, loop_bars=4, loop_repeats=6). T2 runs as a long repeating texture underneath T1. Let it run for 16+ bars before any fading begins.\n2. fade_in(T2, duration_bars=32, stems={drums:0.6, other:0.3, bass:0.0}). Extremely slow entry. T2 sounds like a layer added to T1, not a new track.\n3. At bar +8: eq(T1, low=0.5). Gentle. Preserve warmth.\n4. At bar +16: eq(T1, mid=0.7). T1 begins to recede slightly.\n5. At bar +24 (75% through): bass_swap(T1, incoming_track=T2). eq(T1, low=0.0). eq(T2, low=1.0). Late swap — T2 has been present for 24 bars, the bass landing feels like T1 leaving.\n6. loop(T1, start_bar=<last clean drum phrase>, loop_bars=4, loop_repeats=3). T1 enters a repeating drum texture.\n7. play(T2 full mix). T2 breaks free from loop. T2 plays freely.\n8. fade_out(T1, start_bar=<loop resume point>, duration_bars=16). T1 loop dissolves very slowly.\n\nLOOP PHILOSOPHY: Loops are the texture, not a technique. loop_bars=2 or 4, loop_repeats=3–6.\n\nOVERLAP: 32 bars minimum. 48 bars if tracks permit.\nENERGY: Flat. Each T2 should be same energy as T1. Variation comes from texture, never energy.\nFORBIDDEN: drop_swap, loop-and-build (too dramatic), energy jumps of any kind, window_bars < 24, bass_swap before 60% of window, cuts."
+}

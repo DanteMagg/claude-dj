@@ -1,0 +1,175 @@
+<style>
+  .compare { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-top: 16px; }
+  .layout-card {
+    border: 2px solid #2a2a2a;
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color .15s, box-shadow .15s;
+    background: #111;
+  }
+  .layout-card:hover { border-color: #555; }
+  .layout-card.selected { border-color: #ff5f00; box-shadow: 0 0 0 1px #ff5f00; }
+
+  .layout-card .lc-label {
+    font-size: 11px; font-weight: 700; letter-spacing: .1em;
+    text-transform: uppercase; padding: 8px 12px;
+    border-bottom: 1px solid #222; color: #888;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .layout-card.selected .lc-label { color: #ff5f00; }
+
+  .lc-tag {
+    font-size: 9px; font-weight: 600; padding: 2px 6px;
+    border-radius: 3px; background: #222; color: #555;
+    letter-spacing: .08em;
+  }
+  .layout-card.selected .lc-tag { background: rgba(255,95,0,.15); color: #ff5f00; }
+
+  /* Wireframe regions */
+  .wf { display: flex; flex-direction: column; padding: 10px; gap: 5px; }
+  .wf-row { display: flex; gap: 5px; }
+
+  .r { border-radius: 3px; display: flex; align-items: center; justify-content: center;
+       font-size: 9px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+       color: rgba(255,255,255,.35); }
+
+  .r-topbar  { background: #1a1a1a; height: 28px; flex: 1; }
+  .r-lib     { background: #161616; border: 1px dashed #2a2a2a; }
+  .r-deck-a  { background: rgba(255,95,0,.08); border: 1px dashed rgba(255,95,0,.3); flex: 1; }
+  .r-deck-b  { background: rgba(0,180,255,.06); border: 1px dashed rgba(0,180,255,.25); flex: 1; }
+  .r-wave    { background: #141414; border: 1px dashed #2d2d2d; flex: 1; }
+  .r-claude  { background: rgba(191,90,242,.06); border: 1px dashed rgba(191,90,242,.3); }
+  .r-queue   { background: #131313; border: 1px dashed #252525; flex: 1; }
+  .r-ctrl    { background: #181818; border: 1px dashed #2a2a2a; }
+  .r-transport { background: #1e1e1e; height: 36px; flex: 1; }
+
+  .desc {
+    padding: 10px 12px 12px;
+    border-top: 1px solid #1a1a1a;
+  }
+  .desc h3 { font-size: 13px; font-weight: 600; color: #e0e0e0; margin-bottom: 4px; }
+  .desc p  { font-size: 11px; color: #666; line-height: 1.5; }
+  .desc ul { margin: 6px 0 0 0; padding-left: 14px; }
+  .desc li { font-size: 11px; color: #555; line-height: 1.7; }
+</style>
+
+<h2>Layout Direction</h2>
+<p class="subtitle">Three structural approaches — click to select your preference</p>
+
+<div class="compare">
+
+  <!-- Option A: Deck Center -->
+  <div class="layout-card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="lc-label">A — Deck Center <span class="lc-tag">Rekordbox-inspired</span></div>
+    <div class="wf">
+      <!-- Top bar -->
+      <div class="wf-row">
+        <div class="r r-topbar" style="height:24px">Brand + BPM + Status</div>
+      </div>
+      <!-- Dual decks -->
+      <div class="wf-row">
+        <div class="r r-deck-a" style="height:80px">Deck A<br><span style="opacity:.5;font-size:8px">Now Playing</span></div>
+        <div class="r r-ctrl" style="width:44px;height:80px">FX<br>EQ</div>
+        <div class="r r-deck-b" style="height:80px">Deck B<br><span style="opacity:.5;font-size:8px">Up Next</span></div>
+      </div>
+      <!-- Waveform crossfade strip -->
+      <div class="wf-row">
+        <div class="r r-wave" style="height:28px">Crossfade Timeline</div>
+      </div>
+      <!-- Transport -->
+      <div class="wf-row">
+        <div class="r r-transport">Transport + Play/Pause</div>
+      </div>
+      <!-- Library bottom drawer -->
+      <div class="wf-row">
+        <div class="r r-lib" style="flex:1;height:90px">Library + Queue</div>
+      </div>
+    </div>
+    <div class="desc">
+      <h3>Decks on top, Library below</h3>
+      <p>Classic DJ software feel. Visual emphasis on the two decks and the transition happening between them.</p>
+      <ul>
+        <li>Familiar to anyone who's used Rekordbox or Traktor</li>
+        <li>Library collapses when not needed</li>
+        <li>Transition zone between decks is the focal point</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Option B: Command Center -->
+  <div class="layout-card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="lc-label">B — Command Center <span class="lc-tag">Novel / AI-first</span></div>
+    <div class="wf">
+      <!-- Top bar -->
+      <div class="wf-row">
+        <div class="r r-topbar" style="height:24px">Brand + Controls</div>
+      </div>
+      <!-- Three column -->
+      <div class="wf-row" style="height:200px">
+        <div class="r r-lib" style="width:110px;height:200px">Library<br>+<br>Queue</div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:5px">
+          <!-- Now playing big -->
+          <div class="r r-deck-a" style="flex:1">Now Playing<br><span style="opacity:.5;font-size:8px">Full waveform</span></div>
+          <!-- Crossfade -->
+          <div class="r r-wave" style="height:22px">Transition Strip</div>
+          <!-- Up next -->
+          <div class="r r-deck-b" style="height:50px">Up Next · Status</div>
+        </div>
+        <div class="r r-claude" style="width:110px;height:200px">Claude<br>AI Panel<br><br><span style="opacity:.5;font-size:8px">Reasoning<br>+<br>Actions</span></div>
+      </div>
+      <!-- Transport strip -->
+      <div class="wf-row">
+        <div class="r r-transport">Transport</div>
+      </div>
+    </div>
+    <div class="desc">
+      <h3>Three columns — Library · Stage · Claude</h3>
+      <p>AI panel gets its own column. The center "stage" is wide and immersive. Library is always visible on the left.</p>
+      <ul>
+        <li>Claude's reasoning visible at all times</li>
+        <li>Center column is the mix — dominant focal area</li>
+        <li>Works best at 1440px+ wide displays</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Option C: Split Focus -->
+  <div class="layout-card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="lc-label">C — Split Focus <span class="lc-tag">Minimal / Focused</span></div>
+    <div class="wf">
+      <!-- Top bar -->
+      <div class="wf-row">
+        <div class="r r-topbar" style="height:24px">Brand + Now Playing</div>
+      </div>
+      <!-- Main area: left lib, right content -->
+      <div class="wf-row" style="height:212px">
+        <div class="r r-lib" style="width:100px;height:212px">Library</div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:5px">
+          <!-- Player big -->
+          <div class="r r-deck-a" style="flex:2">Player<br><span style="opacity:.5;font-size:8px">Waveform + Controls</span></div>
+          <!-- Claude log takes lower half -->
+          <div class="r r-claude" style="flex:1">Claude Log<br><span style="opacity:.5;font-size:8px">Transitions + Reasoning</span></div>
+        </div>
+      </div>
+      <!-- Queue strip bottom -->
+      <div class="wf-row">
+        <div class="r r-queue" style="height:28px">Upcoming queue strip</div>
+      </div>
+    </div>
+    <div class="desc">
+      <h3>Library left, Player + Claude Log right</h3>
+      <p>More like a music player than a DJ app. Simpler, more legible, better at showing Claude's work.</p>
+      <ul>
+        <li>No dual-deck cognitive load — auto-DJ handles it</li>
+        <li>Claude reasoning panel is prominent</li>
+        <li>Works at any screen width</li>
+      </ul>
+    </div>
+  </div>
+
+</div>
+
+<p style="margin-top:16px;font-size:11px;color:#555;text-align:center">
+  Click a card to select · You can change your mind before confirming
+</p>

@@ -1,0 +1,13 @@
+{
+  "name": "cool_down",
+  "display_name": "Cool Down",
+  "description": "Descent 8→3. Each transition is a slight release. Never drop a banger.",
+  "directives": {
+    "preferred_overlap_bars": 24,
+    "preferred_technique": "blend",
+    "avoid_technique": ["drop_swap"],
+    "bass_swap_placement": "mid"
+  },
+  "example_ids": [],
+  "prompt_injection": "COOL DOWN SET. Each transition must feel like a slight release of pressure. Never introduce a track higher energy than the current one.\n\nPRIMARY TECHNIQUE — FILTER SWEEP DISSOLVE:\nModel a filter sweep with stepped eq() calls on T1:\n\n  bar -8 (before T2 enters): eq(T1, high=0.7)\n  bar  0 (T2 fade_in starts): eq(T1, high=0.4, mid=0.8) and fade_in(T2, duration_bars=24, stems={drums:0.5, other:0.6, bass:0.0})\n  bar +8:  eq(T1, mid=0.5, low=0.7)\n  bar +12: bass_swap(T1, incoming_track=T2). eq(T1, low=0.0). eq(T2, low=1.0).\n  bar +16: eq(T2, mid=1.0, high=1.0). T2 at unity. T1 fade_out completes.\n\nT1 frequencies dissolve in order: highs first, mids second, lows last. T1 thins out rather than stopping.\n\nSECONDARY TECHNIQUE — ECHO-OUT SIMULATION (use at major section transitions):\n  eq(T1, high=0.2, mid=0.3) — T1 thins to near-nothing, sounds like an echo tail.\n  T2 begins underneath at low volume: fade_in stems={drums:0.4, other:0.5, bass:0.0}.\n  T2 builds from near-silence over 16 bars while T1 decays.\n\nOVERLAP: 24–32 bars. Never under 16.\nENERGY: every T2 must be ≤ T1 energy level. +1 energy is a mistake in this concept.\nFORBIDDEN: loop-and-build (peak technique), drop_swap, cuts without preceding filter dissolve, opening T2 at full energy while T1 is still audible."
+}

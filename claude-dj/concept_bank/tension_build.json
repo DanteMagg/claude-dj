@@ -1,0 +1,13 @@
+{
+  "name": "tension_build",
+  "display_name": "Tension Build",
+  "description": "Escalating pressure to a held peak. Withhold the release.",
+  "directives": {
+    "preferred_overlap_bars": 16,
+    "preferred_technique": "blend",
+    "avoid_technique": ["cut"],
+    "bass_swap_placement": "late"
+  },
+  "example_ids": [],
+  "prompt_injection": "TENSION BUILD SET. Build pressure track by track. Withhold the release. The crowd should feel something coming but not know when it lands.\n\nCROSS-DECK LOOP + FILTER PRESSURE SEQUENCE:\n1. Start a short loop on T2 before the transition: loop(T2, loop_bars=2, loop_repeats=4). T2 runs as a repeating 2-bar drum texture underneath T1.\n2. fade_in(T2, duration_bars=16, stems={drums:0.8, other:0.2, bass:0.0}). T2 feels like added percussion pressure on top of T1.\n3. Progressive EQ pressure on T1 — step these across 8 bars:\n   bar +4:  eq(T1, high=0.7)           — hats start pulling back\n   bar +8:  eq(T1, high=0.4, mid=0.8)  — T1 losing presence\n   bar +12: eq(T1, mid=0.5, low=0.7)   — T1 dissolving in all bands\n   This is the HPF sweep equivalent — T1 frequencies disappear in order: highs, mids, lows.\n4. bass_swap(T1, incoming_track=T2) at bar +12 (75% through). eq(T1, low=0.0). eq(T2, low=1.0). T2 bass lands as T1 is already dissolving.\n5. loop(T1, start_bar=<current phrase>, loop_bars=4, loop_repeats=2). T1 enters a short loop while T2 plays freely — T1 is now trapped/rhythmic.\n6. play(T2 full mix). T2 breaks free from its own loop if looping.\n7. fade_out(T1, start_bar=<loop resume point>, duration_bars=8). T1 loop dissolves.\n\nENERGY RULE: Each successive track should be +1 energy. Do not plateau. Pressure must keep building until the set's peak track.\n\nFORBIDDEN: Long patient blends (> 24 bars), bass_swap before bar +10, opening T2 fully before T1 is under pressure from EQ steps."
+}

@@ -1,0 +1,27 @@
+{
+  "mix_title": "Claude DJ Set — House 2026-04-30 (v3)",
+  "reasoning": "Checklist (§6): (1) Phrase boundary — bar 160 = 5×32, landing in T1's second low-energy dip (energy 4, bars 151–166). Both bar 160 and T2 bar 0 are downbeat-aligned. ✓ (2) BPM — identical 120.2, no stretch. ✓ (3) Key — 1B→5B = 4 steps, incompatible. §3.6 damage limitation: overlap capped at 8 bars. Bass kill via bass_swap (cleaner than eq low=0.0); harmonic/mid content stripped via eq mid=0.0 (~−6 dB) centered at bar 161. No melodic blend. ✓ (4) Section alignment — T1 at bar 160 is mid-second-dip, post-peak descent. T2 cues from bar 0 (its full intro). ✓ (5) Energy step — T1 energy 4 → T2 energy 6, +2 step. Permitted at deliberate section boundary per §4.2. ✓ (6) Vocal collision — T1 vocals=10 throughout; T2 vocals=10 from bar 0. §1.4 two-vocal overlap limit. Resolution: T2 fade_in holds vocals=0.0; T2 vocals only enter at bar 168 via play action, by which point T1 is fully faded. Zero vocal overlap. ✓ (7) Bass swap — bass_swap T1 at bar 160: HP filter cuts T1 bass from bar 160 onwards (§3.1). T2 bass held at 0.0 during fade_in window; enters naturally with play T2 at bar 168. Single-downbeat swap with T1 bass already gone. ✓ (8) Crossfade length — 8 bars per §3.6 rule 1 (incompatible key overrides house default of 16–32). ✓ (9) Stem order — drums(0.9) and other(0.85) enter first via fade_in; bass(0.0) and vocals(0.0) withheld until play. Matches §3.2 layering order. ✓ v3 change: bass_swap replaces eq low=0.0 for bass kill; eq is now mids-only (low=1.0, mid=0.0) to reduce harmonic clash without redundant low filtering.",
+  "tracks": [
+    {
+      "id": "T1",
+      "path": "/Users/DantesFolder/Downloads/06TribulationsLindstromMix.mp3",
+      "bpm": 120.2,
+      "first_downbeat_s": 48.936
+    },
+    {
+      "id": "T2",
+      "path": "/Users/DantesFolder/Downloads/CROSSFADER MUSIC PACK (2021)/House/Roberto Marín Muñoz - I Feel Fire.mp3",
+      "bpm": 120.2,
+      "first_downbeat_s": 0.035
+    }
+  ],
+  "actions": [
+    { "type": "play",      "track": "T1", "at_bar": 0,   "from_bar": 0 },
+    { "type": "bass_swap", "track": "T1", "at_bar": 160 },
+    { "type": "eq",        "track": "T1", "bar": 161, "low": 1.0, "mid": 0.0, "high": 1.0 },
+    { "type": "fade_in",   "track": "T2", "start_bar": 160, "duration_bars": 8,
+      "stems": { "drums": 0.9, "bass": 0.0, "vocals": 0.0, "other": 0.85 } },
+    { "type": "fade_out",  "track": "T1", "start_bar": 162, "duration_bars": 6 },
+    { "type": "play",      "track": "T2", "at_bar": 168, "from_bar": 8 }
+  ]
+}

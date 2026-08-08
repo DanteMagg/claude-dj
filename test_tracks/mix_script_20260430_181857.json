@@ -1,0 +1,127 @@
+{
+  "mix_title": "Demo Track 1 \u2192 Disco Lines - No Broke Boys",
+  "reasoning": "## Track Analysis\n\n**T1 \u2014 Demo Track 1**\n- BPM: 129.2 | Key: 4A (F minor) | Energy: 6 overall | 88 bars total\n- Section B (bars 0\u201349): energy 7, drums 9, bass 10, no vocals \u2014 this is the main groove / drop. The energy curve reads 7 for bars 0\u201332, then drops to 6, confirming a sustained high-energy groove.\n- Section C (bars 49\u201363): energy 4, drums 2, bass 4 \u2014 this is clearly a breakdown. Low stem presence, low loudness (\u221220.7 dBFS). This is the ideal mix-OUT window.\n- Section D (bars 63\u201387): energy 7, drums 10, bass 10 \u2014 second drop / main groove return.\n- Section E/F/G (bars 87+): near-silence, track ends. mix_out cue is bar 87.\n- **Best transition window:** Section C (bars 49\u201363) \u2014 the breakdown. 14 bars of low-density material. I'll target bar 56 (nearest phrase-boundary multiple of 8 inside the breakdown, aligning to the 8-bar grid: 48+8=56) as the fade_in start for T2.\n\n**T2 \u2014 Disco Lines - No Broke Boys**\n- BPM: 132.5 | Key: 1A (G# minor) | Energy: 5 overall | 107 bars total\n- Section B (bars 0\u201330): energy 5, drums 1, bass 0, vocals 10, other 10 \u2014 this is a vocal/melodic INTRO with almost no drums or bass. Very DJ-friendly intro structure.\n- Section C (bars 30\u201347): energy 6, drums 10, bass 10, vocals 3 \u2014 first groove/drop.\n- Section D (bars 47\u201367): energy 5, drums 0, bass 1, vocals 10 \u2014 second breakdown/verse, heavy vocals.\n- Section E (bars 67\u201370): energy 5, similar to D.\n- Section F (bars 70\u2013105): energy 6, drums 10, bass 10 \u2014 second groove. This is the main body.\n- Section G (bars 105\u2013106): near-silence, outro. mix_out cue is bar 105.\n- **Intro window:** bars 0\u201330 are intro (no drums, no bass, vocals only). I'll use from_bar=0 for T2's fade_in but hold bass=0 and drums low to avoid clashing with T1's breakdown.\n\n## Checklist Analysis (Section 6)\n\n**1. Phrase position:** T1's breakdown starts at bar 49. Nearest 8-bar boundary inside it: bar 56 (49+7\u224856, which is 7\u00d78=56 \u2713). T2 starts from bar 0 (its intro phrase start). The overlap window will be bars 56\u201372 of T1 (16 bars), covering the breakdown and just into D. Bass swap at bar 64 \u2014 a multiple of 8, phrase boundary \u2713.\n\n**2. BPM compatibility:** T1=129.2, T2=132.5. \u0394BPM=3.3 BPM. This is within the \u00b14 BPM tolerance (3.3/129.2 = 2.5% pitch shift, within the \u00b13% rule). \u2713 Acceptable; use sync/key-lock.\n\n**3. Key compatibility:** T1=4A (Fm), T2=1A (G#m). Camelot distance: 4A \u2192 1A = stepping back 3 positions (4\u21923\u21922\u21921), or forward 9 positions. This is 3 steps apart \u2014 outside the safe \u00b11 window, and not a relative major/minor swap. This is a HARMONIC CLASH. Damage-limitation protocol applies (Section 1.2, 3.6):\n- Shorten overlap to \u226416 bars (I'll use 16 bars \u2014 the minimum per the safety layer).\n- Mix during T1's breakdown (Section C, bars 49\u201363) \u2014 drums are at presence=2, bass at presence=4, very sparse. This is our percussion/breakdown window.\n- Hold T2's harmonic stems (bass=0.0, other=0.0) during the overlap. T2's intro (bars 0\u201330) already has no drums and no bass natively, only vocals/other. I'll suppress other=0.0 as well during the overlap to avoid harmonic clash.\n- T2's vocals are present in section B (bars 0\u201330) \u2014 presence=10. T1 has vocals=0. So there is only ONE vocal line (T2's), which is acceptable. No vocal collision.\n- Apply EQ mid-cut on T1 during overlap to reduce its harmonic content further.\n- The 16-bar overlap window (bars 56\u201372 of T1 global timeline, T2 from bar 0) keeps the clash exposure minimal.\n- At bar 64 (phrase boundary), execute bass_swap: T1's low end is killed, T2's bass is restored. By this point T1 is well into its breakdown (minimal bass anyway), so the swap is clean.\n- T2's section B (bars 0\u201330) has no drums natively, so introducing T2's drums at low level during the overlap is safe \u2014 there's nothing to phase against T1's sparse breakdown drums.\n\n**4. Section alignment:** T1 exits from its breakdown (Section C, low energy) \u2713. T2 enters from its intro (Section B, bars 0\u201330, low drums/bass) \u2713. Both are in low-density windows. \u2713\n\n**5. Energy step:** T1 energy=6 overall; Section C (breakdown) is energy=4. T2 Section B intro is energy=5. \u0394Energy = +1 from breakdown to T2 intro. Within \u00b11 rule \u2713. As T2 builds into its Section C (energy 6) and D, the energy arc progresses naturally.\n\n**6. Vocal collision:** T1 has vocals presence=0 throughout. T2 intro (Section B) has vocals presence=10. Since T1 has no vocals, there is zero vocal clash. \u2713\n\n**7. Bass swap timing:** Bar 64 \u2014 multiple of 8, inside the 16-bar overlap window (56\u201372). At bar 64, T1 is still in its breakdown (Section C ends at bar 63, so bar 64 is actually bar 1 of Section D \u2014 the second drop). This means I should swap BEFORE the T1 bass re-enters at bar 63. Revised: bass_swap at bar 56 (the very start of the fade_in, first phrase boundary in the breakdown window). Actually, looking more carefully: T1 Section C runs bars 49\u201363 (bass presence=4, low). Section D starts bar 63 (bass presence=10). I need the bass_swap to fire BEFORE bar 63 so T1's big bass doesn't re-enter while T2's bass is still muted. So: fade_in starts at bar 56, bass_swap at bar 56 (immediate \u2014 kill T1 bass right as T2 enters) or at bar 64 of the global T1 timeline. Since the overlap starts at T1-bar 56 and the next phrase boundary is bar 64, I'll set bass_swap at bar 56 to prevent T1's bass from reasserting at bar 63 Section D. Wait \u2014 at bar 56 T1 is still in breakdown (bass presence=4, quiet), so killing T1's low-end there is actually clean and not jarring. Then when Section D fires at bar 63 (T1's big bass would return), it's already killed. This is the right call. Bass_swap at bar 56. \u2713\n\n**8. Crossfade length:** Harmonically incompatible \u2192 use 16 bars (minimum for safety layer, damage-limitation protocol). Genre context: T1 is tech-house/techno territory (129 BPM, drums+bass only), T2 is house/tech-house (132.5 BPM, vocal house). Tech house table: 16\u201332 bars. 16 bars chosen given harmonic incompatibility. \u2713\n\n**9. Stem layering order (Section 3.2):** Drums first, other second, bass at swap, vocals last. T2's intro has: drums=1 (almost none natively), bass=0 (none natively), vocals=10, other=10. I'll introduce: drums=0.5 (low, barely there), bass=0.0 (held until swap at bar 56), vocals=0.3 (low \u2014 T2's vocal is present but I'm keeping it subdued during the 16-bar blend to avoid the harmonic clash being melodically exposed), other=0.0 (suppress harmonic pads during clash window).\n\n**10. EQ:** Apply a mid-cut on T1 during the overlap (bars 56\u201372) to reduce harmonic content. Use eq action at bar 56: mid=0.4 (\u2248\u22123.6 dB reduction), low=0.0 (bass already killed by bass_swap). Restore T1 mids gradually \u2014 actually T1 will be fading out so this just rides it down.\n\n## Timeline Construction\n\n- **Bar 0:** T1 plays from bar 0 (its mix_in). The main groove runs bars 0\u201349.\n- **Bar 49:** T1 enters breakdown (Section C). No action needed \u2014 T1 continues playing.\n- **Bar 56:** Fade_in T2 from bar 0. Duration 16 bars. Stems: drums=0.5, bass=0.0, vocals=0.3, other=0.0. Simultaneously apply EQ to T1 (mid cut). Bass_swap at bar 56 (kills T1 low, enables T2 bass \u2014 but T2's bass stem is 0.0 during fade_in, so the bass_swap here really just kills T1's low end proactively before Section D).\n- **Bar 72:** T2 full play resumes from bar 16 (end of fade_in window). T1 fade_out starts at bar 56, duration 16 bars \u2014 so T1 is fully out by bar 72. \u2713\n- **T2 continues:** Section C at bar 30 (T2-relative), Section D at bar 47, Section F at bar 70, runs to mix_out at bar 105.\n\n**Energy arc:** T1 plays its full main groove (energy 7) \u2192 transitions through T1's breakdown (energy 4) \u2192 T2 enters at energy 5 intro \u2192 builds to T2's Section C/F at energy 6. Arc: 7\u21924\u21925\u21926. This is a modest dip through the transition (the breakdown creates a natural valley) then a rebuild \u2014 a classic warm-up to peak-building shape appropriate for a 2-track set.\n\n**T1 global bars:** 88 bars at 129.2 BPM. T2 starts at T1-bar 56. After T1's fade completes at T1-bar 72, T2 is running independently. T2's BPM is 132.5 \u2014 slightly faster, building energy.\n\n**Note on bar numbering:** Since both tracks run on their own timelines and the executor sums layers, 'at_bar' for T2 actions is expressed in T2's own bar grid, and T1's actions remain on T1's bar grid. The executor handles BPM-relative timing per track. All T1 actions use T1's bar grid; all T2 actions use T2's bar grid.",
+  "tracks": [
+    {
+      "id": "T1",
+      "path": "Demo Track 1.mp3",
+      "bpm": 129.2,
+      "first_downbeat_s": 0.046
+    },
+    {
+      "id": "T2",
+      "path": "Disco Lines - No Broke Boys.mp3",
+      "bpm": 132.5,
+      "first_downbeat_s": 0.813
+    }
+  ],
+  "actions": [
+    {
+      "type": "play",
+      "track": "T1",
+      "at_bar": 0,
+      "from_bar": 0,
+      "start_bar": null,
+      "duration_bars": null,
+      "stems": null,
+      "bar": null,
+      "low": null,
+      "mid": null,
+      "high": null,
+      "incoming_track": null,
+      "loop_bars": null,
+      "loop_repeats": null,
+      "loop_mute_tail": null
+    },
+    {
+      "type": "eq",
+      "track": "T1",
+      "at_bar": null,
+      "from_bar": null,
+      "start_bar": null,
+      "duration_bars": null,
+      "stems": null,
+      "bar": 56,
+      "low": 0.0,
+      "mid": 0.4,
+      "high": 0.9,
+      "incoming_track": null,
+      "loop_bars": null,
+      "loop_repeats": null,
+      "loop_mute_tail": null
+    },
+    {
+      "type": "bass_swap",
+      "track": "T1",
+      "at_bar": 56,
+      "from_bar": null,
+      "start_bar": null,
+      "duration_bars": null,
+      "stems": null,
+      "bar": null,
+      "low": null,
+      "mid": null,
+      "high": null,
+      "incoming_track": null,
+      "loop_bars": null,
+      "loop_repeats": null,
+      "loop_mute_tail": null
+    },
+    {
+      "type": "fade_in",
+      "track": "T2",
+      "at_bar": null,
+      "from_bar": 0,
+      "start_bar": 56,
+      "duration_bars": 16,
+      "stems": {
+        "drums": 0.5,
+        "bass": 0.0,
+        "vocals": 0.3,
+        "other": 0.0
+      },
+      "bar": null,
+      "low": null,
+      "mid": null,
+      "high": null,
+      "incoming_track": null,
+      "loop_bars": null,
+      "loop_repeats": null,
+      "loop_mute_tail": null
+    },
+    {
+      "type": "fade_out",
+      "track": "T1",
+      "at_bar": null,
+      "from_bar": null,
+      "start_bar": 56,
+      "duration_bars": 16,
+      "stems": null,
+      "bar": null,
+      "low": null,
+      "mid": null,
+      "high": null,
+      "incoming_track": null,
+      "loop_bars": null,
+      "loop_repeats": null,
+      "loop_mute_tail": null
+    },
+    {
+      "type": "play",
+      "track": "T2",
+      "at_bar": 72,
+      "from_bar": 16,
+      "start_bar": null,
+      "duration_bars": null,
+      "stems": null,
+      "bar": null,
+      "low": null,
+      "mid": null,
+      "high": null,
+      "incoming_track": null,
+      "loop_bars": null,
+      "loop_repeats": null,
+      "loop_mute_tail": null
+    }
+  ]
+}

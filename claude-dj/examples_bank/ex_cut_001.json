@@ -1,0 +1,55 @@
+{
+  "id": "ex_cut_001",
+  "meta": {
+    "genre": "tech_house",
+    "t1_bpm": 130.0,
+    "t2_bpm": 130.0,
+    "t1_camelot": "3A",
+    "t2_camelot": "7B",
+    "camelot_distance": 4,
+    "bpm_delta": 0.0,
+    "exit_section": "outro",
+    "overlap_bars": 4,
+    "technique": "cut",
+    "scenario": "cut transition \u2014 Camelot distance 4, incompatible keys, T1 sparse outro",
+    "source": "Laurent Garnier - Essential Mix 1995-11-18",
+    "t1_artist": "T1 Artist",
+    "t1_title": "Incompatible Track A",
+    "t2_artist": "T2 Artist",
+    "t2_title": "Incompatible Track B"
+  },
+  "transition_arc": "3A (Bm) to 7B (F major) is a Camelot distance of 4 \u2014 harmonically incompatible. Any blend longer than 4 bars would produce obvious dissonance. T1 is in a very sparse outro section (rms < 0.15, only hi-hats remaining) \u2014 the near-silence masks the hard switch. A 4-bar quick fade_out is used instead of a full 16-bar blend. T2 enters at full volume with no stem filtering \u2014 the bass_swap is skipped because T1's bass is already gone in its sparse outro.",
+  "annotated_actions": [
+    {
+      "action": {
+        "type": "play",
+        "track": "T1",
+        "at_bar": 0,
+        "from_bar": 0
+      },
+      "t1_state": "T1 bar 0: full groove, kick+bass active, RMS 0.52",
+      "why": "Standard entry."
+    },
+    {
+      "action": {
+        "type": "fade_out",
+        "track": "T1",
+        "start_bar": 72,
+        "duration_bars": 4
+      },
+      "t1_state": "T1 bar 72: section=OUTRO, drums=0.05, harmonic=0.0, rms=0.10 \u2014 only hi-hat flutter, bass completely gone",
+      "t2_state": "T2 bar 0: full groove at entry, kick+bass+chords, RMS 0.58",
+      "why": "T1 at bar 72 is near-silent \u2014 the 4-bar quick fade is inaudible. No longer fade because the keys are incompatible (distance 4) \u2014 any harmonic bleed during a longer overlap would produce obvious dissonance. The near-silence at T1's outro makes the cut harmless."
+    },
+    {
+      "action": {
+        "type": "play",
+        "track": "T2",
+        "at_bar": 76,
+        "from_bar": 0
+      },
+      "t2_state": "T2 bar 0: full kick+bass+chords (F major), RMS 0.58 \u2014 enters at full volume",
+      "why": "No fade_in, no bass_swap needed. T1's bass is already gone. T2 enters at full mix volume immediately after T1's 4-bar fade. The key clash is minimized because T1 is already silent before T2 sounds."
+    }
+  ]
+}

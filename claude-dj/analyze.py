@@ -1,0 +1,1283 @@
+"""
+Audio analysis pipeline. Uses librosa for all analysis (beat tracking, key,
+segmentation, energy). Demucs for stem separation.
+
+No allin1/madmom dependency — both are incompatible with numpy 2.x / scipy 1.x
+without substantial patching. Segmentation uses librosa spectral clustering.
+Sections will have auto-labeled boundaries (A/B/C/...) rather than named
+sections (intro/drop/outro); Claude can reason about their character from the
+energy and stem data.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import platform
+import subprocess
+import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+from typing import Optional
+
+import librosa
+import numpy as np
+from pydub import AudioSegment
+
+from schema import (
+    BarGrid, CuePoint, KeyInfo, Section, SectionStems, StemPresence,
+    StemPaths, TrackAnalysis,
+)
+
+CACHE_DIR = Path(__file__).parent / "cache"
+SILENCE_THRESHOLD_DB = -30.0
+BEATS_PER_BAR = 4
+
+# Analysis sample rate — 22050 Hz is the librosa default and halves compute vs 44100 Hz.
+# All feature extraction (beat tracking, chroma, MFCCs, RMS) scales with sample count,
+# so this alone gives ~2x speedup with negligible accuracy loss for DJ-relevant tasks.
+ANALYSIS_SR = 22050
+
+# Cap analysis at 3 minutes — sufficient for section/cue detection.
+MAX_ANALYSIS_SECONDS = 180
+
+# ── Tag thresholds ────────────────────────────────────────────────────────────
+_VOC_ACTIVE_THRESH   = 0.30
+_HARM_SAFE_THRESH    = 0.40  # club tracks: allow h up to 0.40 — "medium to lower volume stem" is the bar, not pure drums
+_VOC_SAFE_THRESH     = 0.20
+_DRUM_ACTIVE_THRESH  = 0.25
+_HARM_FADE_THRESH    = 0.20
+_RMS_LOW_THRESH      = 0.35
+
+
+def _assign_tags(drums: float, harmonic: float, vocals: float) -> list[str]:
+    """Return semantic tags for a single bar given its stem RMS values (0–1)."""
+    tags: list[str] = []
+    if vocals > _VOC_ACTIVE_THRESH:
+        tags.append("VOCAL_ACTIVE")
+
+    # LOOP_SAFE: vocal-free + rhythmically active. Harmonic content (bass, synths)
+    # is NOT a disqualifier — tech house sections with heavy production are loopable
+    # as long as the phrase is consistent. The full _find_loop_candidates function
+    # handles phrase-level quality scoring separately.
+    loop_safe = vocals < _VOC_SAFE_THRESH and drums > _DRUM_ACTIVE_THRESH
+    if loop_safe:
+        tags.append("LOOP_SAFE")
+    else:
+        if vocals > _VOC_ACTIVE_THRESH:
+            tags.append("LOOP_UNSAFE_VOX")
+
+    if drums > _DRUM_ACTIVE_THRESH and harmonic < _HARM_FADE_THRESH and vocals < _VOC_SAFE_THRESH:
+        tags.append("FADE_IN_OK")
+
+    return tags
+
+
+def _build_vocal_regions(normalized_rms_by_bar: list[float]) -> list[tuple[int, int]]:
+    """
+    Given per-bar normalized vocal RMS (0–1), return a list of (start_bar, end_bar)
+    tuples covering contiguous runs where vocal > _VOC_ACTIVE_THRESH.
+    """
+    regions: list[tuple[int, int]] = []
+    in_region = False
+    region_start = 0
+    for i, v in enumerate(normalized_rms_by_bar):
+        if v > _VOC_ACTIVE_THRESH and not in_region:
+            in_region = True
+            region_start = i
+        elif v <= _VOC_ACTIVE_THRESH and in_region:
+            in_region = False
+            regions.append((region_start, i - 1))
+    if in_region:
+        regions.append((region_start, len(normalized_rms_by_bar) - 1))
+    return regions
+
+
+_PROFILE_LOOP_BARS = (2, 4, 8, 16)
+
+
+def _snap_profile_loop_bars(n: int) -> int:
+    """Snap n to nearest valid loop bar length for MixingProfile candidates."""
+    return min(_PROFILE_LOOP_BARS, key=lambda v: (abs(v - n), -v))
+
+
+def _classify_intro(first_bars: list[dict]) -> str:
+    """Classify intro type from the first ≤8 bar-feature dicts."""
+    if not first_bars:
+        return "silent"
+    window = first_bars[:8]
+    avg_rms = sum(b["rms"] for b in window) / len(window)
+    avg_drums = sum(b["drums"] for b in window) / len(window)
+    avg_h = sum(b["harmonic"] for b in window) / len(window)
+    avg_voc = sum(b["vocals"] for b in window) / len(window)
+
+    if avg_rms < 0.10:
+        return "silent"
+    if avg_rms > 0.60:
+        return "instant-drop"
+    if avg_drums > _DRUM_ACTIVE_THRESH and avg_h < 0.15 and avg_voc < _VOC_SAFE_THRESH:
+        return "drums-only"
+    if avg_h > 0.20:
+        return "melodic"
+    return "silent"
+
+
+def _classify_outro(last_bars: list[dict]) -> str:
+    """Classify outro type from the last ≤16 bar-feature dicts."""
+    if not last_bars:
+        return "fade-silence"
+    window = last_bars[-16:]
+    tail = last_bars[-4:] if len(last_bars) >= 4 else last_bars
+
+    if all(b["rms"] < 0.05 for b in tail):
+        return "cold-stop"
+
+    if any(b["vocals"] > _VOC_ACTIVE_THRESH for b in window):
+        return "vocals-to-end"
+
+    avg_drums = sum(b["drums"] for b in window) / len(window)
+    avg_h = sum(b["harmonic"] for b in window) / len(window)
+    avg_voc = sum(b["vocals"] for b in window) / len(window)
+
+    if avg_drums > 0.20 and avg_h < 0.15 and avg_voc < _VOC_SAFE_THRESH:
+        return "drums-only"
+
+    return "fade-silence"
+
+
+def _find_loop_candidates(bar_features: list[dict]) -> list:
+    """
+    Find good loop candidates using phrase-level audio science:
+
+    1. Vocal safety — no active vocals at splice point or inside the loop
+    2. RMS stationarity — energy is stable (low std-dev means no sudden drops/builds)
+    3. Phrase self-similarity — the loop window sounds similar to the next identical-length
+       window (beat-synchronous cosine similarity). High similarity = sounds good on repeat.
+    4. Rhythmic presence — some drum/percussive energy present (> threshold)
+
+    Heavy harmonic/bass content is NOT a disqualifier. Tech house loops are almost always
+    full-production sections; the relevant signal-quality criterion is consistency, not sparsity.
+    Returns top 5 candidates ranked by composite score.
+    """
+    from schema import LoopCandidate
+
+    n = len(bar_features)
+    if n < 4:
+        return []
+
+    candidates: list[tuple[float, LoopCandidate]] = []
+    seen_starts: set[int] = set()
+
+    for loop_bars in [4, 8, 16]:
+        # Step by 4 bars so candidates are phrase-aligned
+        for start_idx in range(0, n - loop_bars, 4):
+            # Need two consecutive windows to measure self-similarity
+            end_idx  = start_idx + loop_bars
+            next_end = end_idx + loop_bars
+            if next_end > n:
+                continue
+
+            window      = bar_features[start_idx:end_idx]
+            next_window = bar_features[end_idx:next_end]
+
+            # 1. Vocal safety: no vocal activity inside the loop
+            max_voc_in_loop = max(b["vocals"] for b in window)
+            if max_voc_in_loop > _VOC_SAFE_THRESH:
+                continue
+
+            # 2. Rhythmic presence: drums must be active (loop needs rhythmic anchor)
+            avg_drums = sum(b["drums"] for b in window) / loop_bars
+            if avg_drums < _DRUM_ACTIVE_THRESH:
+                continue
+
+            # 3. RMS stationarity: low variance in energy = smooth loop (no abrupt events)
+            rms_vals   = [b["rms"] for b in window]
+            mean_rms   = sum(rms_vals) / len(rms_vals)
+            rms_std    = float(np.std(rms_vals))
+            # Skip near-silence (min energy for a useful loop)
+            if mean_rms < 0.15:
+                continue
+            # Penalise high variance (energy jumps will sound jarring on repeat)
+            stationarity_ok = rms_std < 0.15
+
+            # 4. Phrase self-similarity: cosine similarity between this window and the
+            #    next identical-length window. Inspired by beat-spectrum / SSM methodology
+            #    (Foote & Uchihashi 2001, Roma et al. DAFx 2021).
+            #    Feature vector per bar: [drums, harmonic, rms] — captures spectral energy
+            #    distribution without phase sensitivity.
+            sim_scores: list[float] = []
+            for a, b in zip(window, next_window):
+                va = np.array([a["drums"], a["harmonic"], a["rms"]], dtype=float)
+                vb = np.array([b["drums"], b["harmonic"], b["rms"]], dtype=float)
+                na, nb = np.linalg.norm(va), np.linalg.norm(vb)
+                if na > 1e-9 and nb > 1e-9:
+                    sim_scores.append(float(np.dot(va, vb) / (na * nb)))
+                else:
+                    sim_scores.append(0.0)
+            avg_sim = sum(sim_scores) / len(sim_scores) if sim_scores else 0.0
+
+            # Require reasonable self-similarity — phrase must actually repeat
+            if avg_sim < 0.80:
+                continue
+
+            # Composite score: longer loops preferred, penalise energy variance,
+            # reward self-similarity and drum presence.
+            score = (avg_sim * 10) + (loop_bars * 0.5) - (rms_std * 5) + (avg_drums * 2)
+            if not stationarity_ok:
+                score -= 3.0
+
+            start_bar = bar_features[start_idx]["bar"]
+
+            # Skip near-duplicate starts within 4 bars
+            if any(abs(start_bar - s) < 4 for s in seen_starts):
+                continue
+            seen_starts.add(start_bar)
+
+            avg_h   = sum(b["harmonic"] for b in window) / loop_bars
+            avg_voc = sum(b["vocals"]   for b in window) / loop_bars
+            reason = (
+                f"sim={avg_sim:.2f}, rms_std={rms_std:.2f}, "
+                f"d={avg_drums:.2f}, h={avg_h:.2f}, voc={avg_voc:.2f}, "
+                f"{loop_bars}-bar phrase"
+            )
+            candidates.append((score, LoopCandidate(start_bar=start_bar, bars=loop_bars, reason=reason)))
+
+    candidates.sort(key=lambda x: -x[0])
+    return [c for _, c in candidates[:5]]
+
+
+def _find_transition_windows(bar_features: list[dict]) -> list:
+    """
+    Find spans of 8+ consecutive bars that are relatively low-energy and vocal-safe.
+    Uses the track's 30th-percentile RMS as the threshold (floored by _RMS_LOW_THRESH),
+    so dense club tracks with uniformly high RMS still get ranked windows.
+    Score and return top 3 TransitionWindow objects ranked best first.
+    """
+    from schema import TransitionWindow
+
+    if not bar_features:
+        return []
+
+    all_rms = sorted(b["rms"] for b in bar_features)
+    p30 = all_rms[int(len(all_rms) * 0.30)]
+    # Use whichever gives more coverage: absolute threshold or track-relative p30
+    rms_thresh = max(p30, _RMS_LOW_THRESH)
+
+    windows: list[tuple[float, TransitionWindow]] = []
+    n = len(bar_features)
+    i = 0
+    while i < n:
+        b = bar_features[i]
+        if b["rms"] < rms_thresh and b["vocals"] < _VOC_SAFE_THRESH:
+            j = i + 1
+            while j < n and bar_features[j]["rms"] < rms_thresh and bar_features[j]["vocals"] < _VOC_SAFE_THRESH:
+                j += 1
+            span = j - i
+            if span >= 8:
+                window_bars = bar_features[i:j]
+                avg_drums = sum(b2["drums"]    for b2 in window_bars) / span
+                avg_h     = sum(b2["harmonic"] for b2 in window_bars) / span
+
+                if avg_drums > _DRUM_ACTIVE_THRESH and avg_h < 0.15:
+                    character = "drums-only"
+                elif avg_drums < 0.15 and avg_h < 0.15:
+                    character = "breakdown"
+                else:
+                    character = "sparse-melodic"
+
+                quality = min(10, int(span / 2 + (1 - avg_h) * 5))
+                score = quality + (1.0 if character == "drums-only" else 0.0)
+                windows.append((score, TransitionWindow(
+                    bar=bar_features[i]["bar"],
+                    quality=quality,
+                    character=character,
+                )))
+            i = j
+        else:
+            i += 1
+
+    windows.sort(key=lambda x: -x[0])
+    return [w for _, w in windows[:3]]
+
+
+def _load_full_bar_features(
+    audio_path: str,
+    bpm: float,
+    first_downbeat_s: float,
+    n_bars: int,
+    stems: Optional[StemPaths],
+) -> list[dict]:
+    """
+    Compute per-bar {drums, harmonic, vocals, rms} for the full track.
+    Returns list of dicts indexed 0..n_bars-1. Uses Demucs stems if available,
+    HPSS fallback otherwise.
+    """
+    secs_per_bar = 4 * 60.0 / bpm
+    total_dur = n_bars * secs_per_bar
+
+    # Load mix audio for RMS
+    y_mix, sr = librosa.load(
+        audio_path, sr=ANALYSIS_SR, mono=True,
+        offset=first_downbeat_s, duration=total_dur,
+    )
+    if len(y_mix) == 0:
+        return []
+
+    cache_dir = CACHE_DIR / file_hash(audio_path)
+    drums_path  = cache_dir / "stems" / "drums.wav"
+    bass_path   = cache_dir / "stems" / "bass.wav"
+    other_path  = cache_dir / "stems" / "other.wav"
+    vocals_path = cache_dir / "stems" / "vocals.wav"
+
+    has_demucs = stems is not None and drums_path.exists() and bass_path.exists()
+
+    if has_demucs:
+        y_drums, _ = librosa.load(str(drums_path),  sr=ANALYSIS_SR, mono=True,
+                                   offset=first_downbeat_s, duration=total_dur)
+        y_bass,  _ = librosa.load(str(bass_path),   sr=ANALYSIS_SR, mono=True,
+                                   offset=first_downbeat_s, duration=total_dur)
+        if vocals_path.exists():
+            y_voc, _ = librosa.load(str(vocals_path), sr=ANALYSIS_SR, mono=True,
+                                    offset=first_downbeat_s, duration=total_dur)
+        else:
+            y_voc = np.zeros_like(y_mix)
+        if other_path.exists():
+            y_other, _ = librosa.load(str(other_path), sr=ANALYSIS_SR, mono=True,
+                                      offset=first_downbeat_s, duration=total_dur)
+        else:
+            y_other = np.zeros_like(y_mix)
+        min_len = min(len(y_mix), len(y_drums), len(y_bass))
+        y_mix, y_drums, y_bass = y_mix[:min_len], y_drums[:min_len], y_bass[:min_len]
+        y_other = y_other[:min_len] if len(y_other) >= min_len else np.pad(y_other, (0, min_len - len(y_other)))
+        y_voc   = y_voc[:min_len]   if len(y_voc)   >= min_len else np.pad(y_voc,   (0, min_len - len(y_voc)))
+        y_harm  = y_bass + y_other
+    else:
+        y_harm, y_drums = librosa.effects.hpss(y_mix, margin=3.0)
+        y_voc = np.zeros_like(y_mix)
+
+    mix_peak  = float(np.sqrt(np.mean(y_mix   ** 2))) + 1e-9
+    drum_peak = float(np.sqrt(np.mean(y_drums ** 2))) + 1e-9
+    harm_peak = float(np.sqrt(np.mean(y_harm  ** 2))) + 1e-9
+    voc_global_mean = float(np.sqrt(np.mean(y_voc ** 2))) + 1e-9
+
+    # Bleed gate: if vocal stem energy is < 4% of drums, Demucs produced only noise bleed
+    # → treat as no-vocals track so we don't block loop detection with phantom vocals.
+    voc_is_bleed = (voc_global_mean / drum_peak) < 0.04
+
+    # Compute per-bar vocal RMS to build a percentile-based normalizer.
+    # Normalizing by the 95th-percentile bar makes non-vocal bars of vocal tracks
+    # read near 0 (relative to the track's loudest vocal moments), unlike mean-based
+    # normalization where bleed-floor bars come out ≈ 1.0.
+    bar_voc_rms_list: list[float] = []
+    for i in range(n_bars):
+        s = int(i * secs_per_bar * sr)
+        e = min(int((i + 1) * secs_per_bar * sr), len(y_voc))
+        if s >= len(y_voc):
+            break
+        bar_voc_rms_list.append(float(np.sqrt(np.mean(y_voc[s:e] ** 2))))
+
+    voc_p95 = float(np.percentile(bar_voc_rms_list, 95)) if bar_voc_rms_list else 1e-9
+    voc_peak = max(voc_p95, 1e-9)
+
+    features: list[dict] = []
+    for i in range(n_bars):
+        s = int(i * secs_per_bar * sr)
+        e = int((i + 1) * secs_per_bar * sr)
+        if s >= len(y_mix):
+            break
+        e = min(e, len(y_mix))
+
+        rms   = float(np.sqrt(np.mean(y_mix[s:e]   ** 2))) / mix_peak
+        drums = float(np.sqrt(np.mean(y_drums[s:e]  ** 2))) / drum_peak
+        harm  = float(np.sqrt(np.mean(y_harm[s:e]   ** 2))) / harm_peak
+        bar_voc_rms = bar_voc_rms_list[i] if i < len(bar_voc_rms_list) else 0.0
+        voc   = 0.0 if voc_is_bleed else (bar_voc_rms / voc_peak)
+
+        # Apply same 1.5x boost for legibility as in analyze_transition_zone
+        features.append({
+            "bar":      i,
+            "drums":    round(min(1.0, drums * 1.5), 3),
+            "harmonic": round(min(1.0, harm  * 1.5), 3),
+            "vocals":   round(min(1.0, voc),          3),
+            "rms":      round(min(1.0, rms),           3),
+        })
+    return features
+
+
+def build_mixing_profile(
+    audio_path: str,
+    bpm: float,
+    first_downbeat_s: float,
+    n_bars: int,
+    stems: Optional[StemPaths],
+    no_stems: bool,
+    title: str,
+    key_camelot: str,
+    duration_s: float,
+    sections: list,
+) -> "MixingProfile":
+    """
+    Phase 0: compute a MixingProfile for a track once and cache it.
+    Makes one claude-haiku API call (max 200 tokens) for dj_notes.
+    """
+    from schema import MixingProfile
+
+    if no_stems or stems is None:
+        # Still compute transition windows from mix audio RMS; skip vocal analysis
+        bar_features = _load_full_bar_features(audio_path, bpm, first_downbeat_s, n_bars, None)
+        vocal_bars: list = []
+        loop_cands = []
+        tw = _find_transition_windows(bar_features)
+        intro = _classify_intro(bar_features[:8] if bar_features else [])
+        outro = _classify_outro(bar_features[-16:] if bar_features else [])
+        dj_notes = "[stems unavailable — vocal analysis skipped]"
+        return MixingProfile(
+            vocal_bars=vocal_bars,
+            loop_candidates=loop_cands,
+            transition_windows=tw,
+            intro_type=intro,
+            outro_type=outro,
+            dj_notes=dj_notes,
+        )
+
+    bar_features = _load_full_bar_features(audio_path, bpm, first_downbeat_s, n_bars, stems)
+    if not bar_features:
+        return MixingProfile(
+            vocal_bars=[], loop_candidates=[], transition_windows=[],
+            intro_type="silent", outro_type="fade-silence",
+            dj_notes="[analysis unavailable — no bar data]",
+        )
+
+    # Vocal map
+    voc_rms_list = [b["vocals"] for b in bar_features]
+    vocal_bars = _build_vocal_regions(voc_rms_list)
+
+    loop_cands  = _find_loop_candidates(bar_features)
+    tw          = _find_transition_windows(bar_features)
+    intro       = _classify_intro(bar_features[:8])
+    outro       = _classify_outro(bar_features[-16:])
+
+    # API call for dj_notes
+    section_summary = " ".join(
+        f"{s.label}(b{s.start_bar}-{s.end_bar})" for s in sections
+    ) if sections else "unknown"
+
+    payload = {
+        "title": title,
+        "bpm": round(bpm, 1),
+        "key": key_camelot,
+        "duration_s": round(duration_s, 1),
+        "section_summary": section_summary,
+        "vocal_bars": [[s, e] for s, e in vocal_bars],
+        "loop_candidates": [
+            {"start_bar": lc.start_bar, "bars": lc.bars, "reason": lc.reason}
+            for lc in loop_cands
+        ],
+        "transition_windows": [
+            {"bar": tw_.bar, "quality": tw_.quality, "character": tw_.character}
+            for tw_ in tw
+        ],
+        "intro_type": intro,
+        "outro_type": outro,
+    }
+
+    dj_notes = "[dj_notes unavailable]"
+    try:
+        import anthropic as _anthropic
+        client = _anthropic.Anthropic()
+        resp = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=200,
+            system=(
+                "You are a DJ reading a track before playing it. "
+                "Given structured analysis data, write a concise mixing brief (3-5 sentences) "
+                "describing: where vocals are active and what to avoid, the best transition-out "
+                "window and why, any strong loop candidates, and one sentence on the track's "
+                "overall character for mixing. Be specific about bar numbers."
+            ),
+            messages=[{"role": "user", "content": json.dumps(payload)}],
+        )
+        dj_notes = resp.content[0].text.strip()
+    except Exception as exc:
+        print(f"  [build_mixing_profile] dj_notes API call failed ({exc}) — skipping")
+        dj_notes = "[dj_notes unavailable]"
+
+    return MixingProfile(
+        vocal_bars=[[s, e] for s, e in vocal_bars],
+        loop_candidates=loop_cands,
+        transition_windows=tw,
+        intro_type=intro,
+        outro_type=outro,
+        dj_notes=dj_notes,
+    )
+
+
+def file_hash(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()[:16]
+
+
+def track_cache_dir(path: str) -> Path:
+    h = file_hash(path)
+    d = CACHE_DIR / h
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def separate_stems(audio_path: str, cache_dir: Path) -> StemPaths:
+    stems_dir = cache_dir / "stems"
+    expected = {
+        "vocals": stems_dir / "vocals.wav",
+        "drums": stems_dir / "drums.wav",
+        "bass": stems_dir / "bass.wav",
+        "other": stems_dir / "other.wav",
+    }
+    if all(p.exists() for p in expected.values()):
+        return StemPaths(**{k: str(v) for k, v in expected.items()})
+
+    stems_dir.mkdir(exist_ok=True)
+    result = subprocess.run(
+        [
+            sys.executable, "-m", "demucs",
+            "-n", "htdemucs",
+            "-o", str(stems_dir),
+            audio_path,
+        ],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Demucs failed:\n{result.stderr}")
+
+    track_stem = Path(audio_path).stem
+    demucs_out = stems_dir / "htdemucs" / track_stem
+    if not demucs_out.exists():
+        raise RuntimeError(f"Demucs output not found at {demucs_out}")
+
+    for stem_name, dest in expected.items():
+        src = demucs_out / f"{stem_name}.wav"
+        src.rename(dest)
+
+    return StemPaths(**{k: str(v) for k, v in expected.items()})
+
+
+def estimate_key(y: np.ndarray, sr: int) -> KeyInfo:
+    # chroma_stft is ~10x faster than chroma_cqt with acceptable accuracy for key detection
+    chroma = librosa.feature.chroma_stft(y=y, sr=sr, n_fft=4096, hop_length=1024)
+    chroma_mean = chroma.mean(axis=1)
+    tonic_idx = int(np.argmax(chroma_mean))
+
+    # Krumhansl-Schmuckler profiles
+    major_profile = np.array([6.35,2.23,3.48,2.33,4.38,4.09,2.52,5.19,2.39,3.66,2.29,2.88])
+    minor_profile = np.array([6.33,2.68,3.52,5.38,2.60,3.53,2.54,4.75,3.98,2.69,3.34,3.17])
+
+    note_names = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"]
+    camelot_major = ["8B","3B","10B","5B","12B","7B","2B","9B","4B","11B","6B","1B"]
+    camelot_minor = ["10A","5A","12A","7A","2A","9A","4A","11A","6A","1A","8A","3A"]
+
+    best_score = -np.inf
+    best_tonic = 0
+    best_mode = "major"
+
+    for i in range(12):
+        rolled_chroma = np.roll(chroma_mean, -i)
+        major_score = np.corrcoef(rolled_chroma, major_profile)[0, 1]
+        minor_score = np.corrcoef(rolled_chroma, minor_profile)[0, 1]
+        if major_score > best_score:
+            best_score = major_score
+            best_tonic = i
+            best_mode = "major"
+        if minor_score > best_score:
+            best_score = minor_score
+            best_tonic = i
+            best_mode = "minor"
+
+    tonic_name = note_names[best_tonic]
+    if best_mode == "major":
+        standard = f"{tonic_name} major"
+        camelot = camelot_major[best_tonic]
+    else:
+        standard = f"{tonic_name}m"
+        camelot = camelot_minor[best_tonic]
+
+    return KeyInfo(camelot=camelot, standard=standard, mode=best_mode, tonic=tonic_name)
+
+
+def compute_rms_db(y: np.ndarray) -> float:
+    if len(y) == 0:
+        return -80.0
+    rms = float(np.sqrt(np.mean(y ** 2)))
+    if not np.isfinite(rms) or rms < 1e-10:
+        return -80.0
+    return float(20 * np.log10(rms))
+
+
+def presence_from_rms(rms_db: float, max_rms_db: float) -> int:
+    if not np.isfinite(rms_db) or rms_db < SILENCE_THRESHOLD_DB:
+        return 0
+    denom = max_rms_db - SILENCE_THRESHOLD_DB
+    if not np.isfinite(max_rms_db) or denom <= 0:
+        return 0
+    normalized = (rms_db - SILENCE_THRESHOLD_DB) / denom
+    return max(0, min(10, int(normalized * 10)))
+
+
+def segment_audio(y: np.ndarray, sr: int, downbeats: np.ndarray, n_segments: int = 6) -> list[tuple[float, float]]:
+    """Spectral-clustering-based segmentation. Returns list of (start_s, end_s)."""
+    try:
+        # hop_length=2048 + n_mfcc=8 → smaller matrix, faster recurrence computation
+        mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=8, hop_length=2048)
+        R = librosa.segment.recurrence_matrix(mfcc, mode="affinity", sym=True)
+        bounds_frames = librosa.segment.agglomerative(R, k=min(n_segments, len(downbeats) - 1))
+        bounds_times = librosa.frames_to_time(bounds_frames, sr=sr)
+        bounds_times = np.unique(np.concatenate([[0.0], bounds_times, [librosa.get_duration(y=y, sr=sr)]]))
+        return [(float(s), float(e)) for s, e in
+                zip(bounds_times[:-1], bounds_times[1:]) if e - s > 0.01]
+    except Exception:
+        # fallback: split evenly on downbeats
+        duration = librosa.get_duration(y=y, sr=sr)
+        step = max(1, len(downbeats) // n_segments)
+        boundaries = [float(downbeats[i]) for i in range(0, len(downbeats), step)]
+        boundaries.append(duration)
+        return [(boundaries[i], boundaries[i + 1]) for i in range(len(boundaries) - 1)]
+
+
+def time_to_bar(t: float, downbeats: np.ndarray) -> int:
+    idx = np.searchsorted(downbeats, t, side="right") - 1
+    return max(0, int(idx))
+
+
+ABSENT_STEM = StemPresence(presence=0, rms_db=-80.0)
+ABSENT_STEMS = SectionStems(
+    drums=ABSENT_STEM, bass=ABSENT_STEM, vocals=ABSENT_STEM, other=ABSENT_STEM
+)
+
+
+def _classify_section(
+    energy: int,
+    stems: SectionStems,
+    position_ratio: float,
+    mean_energy: float,
+    has_drop_before: bool,
+    has_drop_after: bool,
+) -> str:
+    """
+    Return a semantic section label from audio features and position.
+
+    Priority: drop > intro > outro > breakdown > groove
+    """
+    drums = stems.drums.presence
+    bass  = stems.bass.presence
+
+    # Drop: densest, highest-energy section with strong drums
+    if energy >= 7 and drums >= 7:
+        return "drop"
+
+    # Intro: low-energy section in the first third of the track
+    if energy <= mean_energy and position_ratio < 0.35 and not has_drop_before:
+        return "intro"
+
+    # Outro: low-energy section in the last quarter of the track
+    if energy <= mean_energy and position_ratio > 0.72:
+        return "outro"
+
+    # Breakdown: sparse/melodic section after a drop (drums fade, bass gone)
+    if (energy < mean_energy and drums <= 4
+            and (has_drop_before or position_ratio > 0.30)):
+        return "breakdown"
+
+    # Groove: everything else — main body, sustained energy
+    return "groove"
+
+
+def build_sections(
+    y: np.ndarray,
+    sr: int,
+    downbeats: np.ndarray,
+    stem_paths: Optional[StemPaths],
+) -> list[Section]:
+    segments = segment_audio(y, sr, downbeats)
+    n_bars = len(downbeats)
+
+    # load stems once (skip if --no-stems)
+    stem_arrays: dict[str, np.ndarray] = {}
+    stem_srs: dict[str, int] = {}
+    stem_max_rms: dict[str, float] = {}
+    if stem_paths is not None:
+        for stem_name in ("vocals", "drums", "bass", "other"):
+            path = getattr(stem_paths, stem_name)
+            s_y, s_sr = librosa.load(path, sr=ANALYSIS_SR, mono=True)
+            stem_arrays[stem_name] = s_y
+            stem_srs[stem_name] = s_sr
+            stem_max_rms[stem_name] = compute_rms_db(s_y)
+
+    # First pass: collect raw section data without semantic labels
+    raw: list[dict] = []
+    for start_s, end_s in segments:
+        start_bar = time_to_bar(start_s, downbeats)
+        end_bar   = time_to_bar(end_s,   downbeats)
+
+        start_sample = librosa.time_to_samples(start_s, sr=sr)
+        end_sample   = librosa.time_to_samples(end_s,   sr=sr)
+        y_seg        = y[start_sample:end_sample]
+        mix_rms_db   = compute_rms_db(y_seg)
+        if np.isnan(mix_rms_db):
+            mix_rms_db = -80.0
+        energy = max(0, min(10, int((mix_rms_db + 40) / 4)))
+
+        if stem_arrays:
+            stem_presences: dict[str, StemPresence] = {}
+            for stem_name, s_y in stem_arrays.items():
+                s_sr = stem_srs[stem_name]
+                s_start = librosa.time_to_samples(start_s, sr=s_sr)
+                s_end   = librosa.time_to_samples(end_s,   sr=s_sr)
+                seg     = s_y[s_start:s_end]
+                rms     = compute_rms_db(seg)
+                pres    = presence_from_rms(rms, stem_max_rms[stem_name])
+                stem_presences[stem_name] = StemPresence(presence=pres, rms_db=round(rms, 1))
+            section_stems = SectionStems(**stem_presences)
+        else:
+            section_stems = ABSENT_STEMS
+
+        raw.append({
+            "start_bar": start_bar, "end_bar": end_bar,
+            "start_s": round(start_s, 2), "end_s": round(end_s, 2),
+            "energy": energy, "mix_rms_db": mix_rms_db, "stems": section_stems,
+        })
+
+    if not raw:
+        return []
+
+    mean_energy = sum(r["energy"] for r in raw) / len(raw)
+
+    # Pre-compute which sections contain drops (for context in classifier)
+    drop_mask = [
+        r["energy"] >= 7 and r["stems"].drums.presence >= 7
+        for r in raw
+    ]
+
+    sections: list[Section] = []
+    for i, r in enumerate(raw):
+        has_drop_before = any(drop_mask[:i])
+        has_drop_after  = any(drop_mask[i + 1:])
+        pos_ratio       = r["start_bar"] / max(1, n_bars)
+
+        label = _classify_section(
+            r["energy"], r["stems"], pos_ratio,
+            mean_energy, has_drop_before, has_drop_after,
+        )
+
+        sections.append(Section(
+            label=label,
+            start_bar=r["start_bar"],
+            end_bar=r["end_bar"],
+            start_s=r["start_s"],
+            end_s=r["end_s"],
+            energy=r["energy"],
+            loudness_dbfs=round(r["mix_rms_db"], 1),
+            stems=r["stems"],
+        ))
+
+    return sections
+
+
+def _cue_points_from_sections(
+    sections: list[Section],
+    energy_curve: list[int],
+    n_bars: int,
+) -> list[CuePoint]:
+    """
+    Derive precise DJ cue points from semantic sections + energy curve.
+
+    Returns: mix_in, mix_out, and optionally drop_bar, breakdown_start, outro_start.
+    All bars snapped to the nearest 8-bar phrase boundary.
+    """
+    phrase = 8
+    cues: list[CuePoint] = []
+
+    def _snap(bar: int) -> int:
+        return (bar // phrase) * phrase
+
+    # ── mix_in: end of intro (first non-intro section start) ──────────────────
+    mix_in = 0
+    for s in sections:
+        if s.label != "intro":
+            mix_in = _snap(s.start_bar)
+            break
+
+    # Fallback: energy-curve heuristic if no sections or all intro
+    if mix_in == 0 and energy_curve:
+        n = len(energy_curve)
+        mean_e = sum(energy_curve) / n
+        for i in range(n - 3):
+            if all(e >= mean_e for e in energy_curve[i:i + 4]):
+                mix_in = _snap(i)
+                break
+
+    cues.append(CuePoint(name="mix_in", bar=mix_in, type="phrase_start"))
+
+    # ── drop_bar: first drop section ──────────────────────────────────────────
+    for s in sections:
+        if s.label == "drop":
+            drop_bar = _snap(s.start_bar)
+            cues.append(CuePoint(name="drop_bar", bar=drop_bar, type="phrase_start"))
+            break
+
+    # ── breakdown_start: first breakdown section ───────────────────────────────
+    for s in sections:
+        if s.label == "breakdown":
+            bd_bar = _snap(s.start_bar)
+            cues.append(CuePoint(name="breakdown_start", bar=bd_bar, type="phrase_start"))
+            break
+
+    # ── outro_start / mix_out: last outro or last low-energy section ───────────
+    outro_bar = None
+    for s in reversed(sections):
+        if s.label in ("outro", "breakdown"):
+            outro_bar = _snap(s.start_bar)
+            break
+
+    # Fallback: energy-curve backward scan in second half
+    if outro_bar is None and energy_curve:
+        n   = len(energy_curve)
+        half = n // 2
+        mean_e = sum(energy_curve) / n
+        for i in range(n - 4, max(half, 0), -1):
+            if all(e >= mean_e for e in energy_curve[i:i + 4]):
+                outro_bar = min(n_bars - 1, _snap(i + 4))
+                break
+        if outro_bar is None:
+            outro_bar = _snap(max(0, n_bars - phrase * 2))
+
+    # Guarantee at least 16 bars of runway after mix_out so the transition
+    # window can fit. If the detected outro is too close to the end of the
+    # track (e.g. a 2-bar tail), pull the cue back to the last viable exit.
+    MIN_RUNWAY = 16
+    max_allowed_mix_out = _snap(max(0, n_bars - MIN_RUNWAY))
+    raw_mix_out = outro_bar or _snap(max(0, n_bars - phrase * 2))
+    mix_out = min(raw_mix_out, max_allowed_mix_out)
+    cues.append(CuePoint(name="mix_out", bar=mix_out, type="outro_start"))
+
+    return cues
+
+
+def analyze_track(audio_path: str, track_id: str, no_stems: bool = False) -> TrackAnalysis:
+    audio_path = str(Path(audio_path).resolve())
+    cache_dir = track_cache_dir(audio_path)
+    analysis_cache = cache_dir / "analysis.json"
+
+    if analysis_cache.exists():
+        with open(analysis_cache) as f:
+            d = json.load(f)
+        d["id"]   = track_id   # always use the caller-assigned id, not the cached one
+        d["file"] = audio_path  # always use the current resolved path, not the cached one
+
+        # Phase 0 backfill: run if mixing_profile is missing OR if stems are missing
+        # but caller wants them (no_stems=False). The latter handles the case where an
+        # old cache saved stems={vocals:"", ...} and mixing_profile was built without
+        # vocal data — we need to run Demucs then rebuild.
+        stem_paths_raw = d.get("stems", {})
+        stems_on_disk = all(
+            stem_paths_raw.get(k) and Path(stem_paths_raw[k]).exists()
+            for k in ("vocals", "drums", "bass", "other")
+        )
+        needs_backfill = d.get("mixing_profile") is None or (not no_stems and not stems_on_disk)
+
+        if needs_backfill:
+            print(f"  [analyze] backfilling mixing_profile for {Path(audio_path).name}")
+            try:
+                stems_obj = None
+                if not no_stems:
+                    if stems_on_disk:
+                        from schema import StemPaths as _SP
+                        stems_obj = _SP(**stem_paths_raw)
+                    else:
+                        # Stems missing — run Demucs now
+                        print(f"  [analyze] running Demucs for {Path(audio_path).name}")
+                        stems_obj = separate_stems(audio_path, cache_dir)
+                        import dataclasses as _dc
+                        d["stems"] = _dc.asdict(stems_obj)
+                mp = build_mixing_profile(
+                    audio_path=audio_path,
+                    bpm=d["bpm"],
+                    first_downbeat_s=d["first_downbeat_s"],
+                    n_bars=d["bar_grid"]["n_bars"],
+                    stems=stems_obj,
+                    no_stems=(stems_obj is None),
+                    title=d.get("title", Path(audio_path).stem),
+                    key_camelot=d["key"]["camelot"],
+                    duration_s=d["duration_s"],
+                    sections=[Section(**s) if isinstance(s, dict) else s for s in d.get("sections", [])],
+                )
+                import dataclasses as _dc
+                d["mixing_profile"] = _dc.asdict(mp)
+                with open(analysis_cache, "w") as f:
+                    json.dump(d, f, indent=2)
+                print(f"  [analyze] mixing_profile backfilled OK")
+            except Exception as exc:
+                print(f"  [analyze] WARNING: mixing_profile backfill failed ({exc}) — continuing without")
+
+        return _dict_to_analysis(d)
+
+    print(f"  [analyze] loading {Path(audio_path).name}")
+    # Resample to ANALYSIS_SR on load — halves data size vs 44100 Hz with negligible
+    # quality loss for beat/key/energy tasks. Also cap at MAX_ANALYSIS_SECONDS.
+    y_full, sr = librosa.load(audio_path, sr=ANALYSIS_SR, mono=True)
+    full_duration_s = float(librosa.get_duration(y=y_full, sr=sr))
+    y = y_full[: sr * MAX_ANALYSIS_SECONDS] if len(y_full) > sr * MAX_ANALYSIS_SECONDS else y_full
+    duration_s = full_duration_s  # report real track duration, not capped analysis window
+
+    # Parallel feature extraction: beat tracking and key estimation are independent
+    # and each takes ~5-15 s alone; running together saves that time.
+    print("  [analyze] beat tracking + key (parallel)")
+    hop_length = 512
+
+    def _beat_and_onset():
+        t, bf = librosa.beat.beat_track(y=y, sr=sr, units="frames", hop_length=hop_length)
+        bt = librosa.frames_to_time(bf, sr=sr, hop_length=hop_length)
+        oe = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop_length)
+        return float(np.atleast_1d(t)[0]), bt, oe
+
+    def _rms():
+        return librosa.feature.rms(y=y, hop_length=hop_length)[0]
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        f_beat  = pool.submit(_beat_and_onset)
+        f_key   = pool.submit(estimate_key, y, sr)
+        f_rms   = pool.submit(_rms)
+        bpm, beat_times, onset_env = f_beat.result()
+        key      = f_key.result()
+        rms_frames = f_rms.result()
+
+    # Downbeat phase correction: try all 4 offsets, pick the one where downbeats
+    # land on strongest onsets (beat 1 of each bar has the strongest transient on
+    # average, e.g. kick drum + chord hit).
+    onset_times = librosa.frames_to_time(np.arange(len(onset_env)), sr=sr, hop_length=hop_length)
+    best_phase, best_score = 0, -np.inf
+    for phase in range(BEATS_PER_BAR):
+        candidate = beat_times[phase::BEATS_PER_BAR]
+        idxs = np.searchsorted(onset_times, candidate).clip(0, len(onset_env) - 1)
+        score = float(onset_env[idxs].mean())
+        if score > best_score:
+            best_score, best_phase = score, phase
+    downbeats = beat_times[best_phase::BEATS_PER_BAR]
+    first_downbeat_s = float(downbeats[0]) if len(downbeats) > 0 else 0.0
+    n_bars = len(downbeats)
+
+    # ── Downbeat confidence diagnostics ─────────────────────────────────────
+    # Warn when the beat grid is shaky so we know before the mix uses bad data.
+    _name = Path(audio_path).name
+    if len(beat_times) >= 8:
+        ibi = np.diff(beat_times)                 # inter-beat intervals
+        ibi_cv = float(ibi.std() / max(ibi.mean(), 1e-6))   # coeff of variation
+        if ibi_cv > 0.15:
+            print(f"  [analyze] WARNING {_name}: beat grid unstable "
+                  f"(IBI coeff-of-variation={ibi_cv:.2f} > 0.15) — "
+                  f"downbeat/BPM may be unreliable")
+    # Phase-selection margin: how much better is the winning phase vs the worst?
+    all_scores = []
+    for phase in range(BEATS_PER_BAR):
+        cand = beat_times[phase::BEATS_PER_BAR]
+        idxs = np.searchsorted(onset_times, cand).clip(0, len(onset_env) - 1)
+        all_scores.append(float(onset_env[idxs].mean()))
+    phase_margin = best_score - min(all_scores)
+    if phase_margin < 0.05 * max(best_score, 1e-6):
+        print(f"  [analyze] WARNING {_name}: low phase-selection confidence "
+              f"(margin={phase_margin:.4f}) — downbeat phase may be off by 1–3 beats")
+    # Sanity-check the estimated first downbeat against track duration
+    if first_downbeat_s > 8.0:
+        print(f"  [analyze] WARNING {_name}: first_downbeat_s={first_downbeat_s:.2f}s "
+              f"is unusually large — track may have a long non-beat intro; "
+              f"verify the downbeat trim is correct")
+
+    # Per-bar RMS energy curve (rms_frames already computed in parallel above)
+    print("  [analyze] energy curve")
+    frame_times = librosa.frames_to_time(np.arange(len(rms_frames)), sr=sr, hop_length=hop_length)
+
+    energy_curve = []
+    for i in range(n_bars):
+        bar_start = downbeats[i]
+        bar_end = downbeats[i + 1] if i + 1 < n_bars else duration_s
+        mask = (frame_times >= bar_start) & (frame_times < bar_end)
+        bar_rms = rms_frames[mask]
+        if len(bar_rms) == 0:
+            energy_curve.append(0)
+            continue
+        rms_db = compute_rms_db(bar_rms)
+        e = max(0, min(9, int((rms_db + 40) / 4)))
+        energy_curve.append(e)
+
+    energy_curve_str = "".join(str(e) for e in energy_curve)
+    energy_overall = max(0, min(10, int(np.mean(energy_curve))))
+
+    # Loudness (RMS dBFS — not true LUFS)
+    loudness_dbfs = round(compute_rms_db(y), 1)
+
+    # Stem separation
+    if no_stems:
+        stem_paths = None
+    else:
+        print("  [analyze] separating stems (Demucs — may take a while)")
+        stem_paths = separate_stems(audio_path, cache_dir)
+
+    # Sections
+    print("  [analyze] segmenting structure")
+    sections = build_sections(y, sr, downbeats, stem_paths)
+
+    # Cue points derived from semantic sections + energy curve
+    cue_points = _cue_points_from_sections(sections, energy_curve, n_bars)
+
+    # Phase 0: build mixing profile (cached; skip if already in analysis.json)
+    mixing_profile = None
+    try:
+        print("  [analyze] building mixing profile (Phase 0)")
+        mixing_profile = build_mixing_profile(
+            audio_path=audio_path,
+            bpm=bpm,
+            first_downbeat_s=first_downbeat_s,
+            n_bars=n_bars,
+            stems=stem_paths,
+            no_stems=no_stems,
+            title=Path(audio_path).stem,
+            key_camelot=key.camelot,
+            duration_s=duration_s,
+            sections=sections,
+        )
+    except Exception as exc:
+        print(f"  [analyze] WARNING: build_mixing_profile failed ({exc}) — skipping")
+
+    title = Path(audio_path).stem
+    artist = "Unknown"
+    try:
+        from mutagen import File as MutagenFile
+        tags = MutagenFile(audio_path, easy=True)
+        if tags:
+            title = str(tags.get("title", [title])[0])
+            artist = str(tags.get("artist", [artist])[0])
+    except Exception:
+        pass
+
+    analysis = TrackAnalysis(
+        id=track_id,
+        title=title,
+        artist=artist,
+        file=audio_path,
+        duration_s=round(duration_s, 1),
+        bpm=round(bpm, 1),
+        first_downbeat_s=round(first_downbeat_s, 3),
+        key=key,
+        energy_overall=energy_overall,
+        loudness_dbfs=loudness_dbfs,
+        bar_grid=BarGrid(n_bars=n_bars, beats_per_bar=BEATS_PER_BAR),
+        energy_curve_per_bar=energy_curve_str,
+        sections=sections,
+        cue_points=cue_points,
+        stems=stem_paths or StemPaths(vocals="", drums="", bass="", other=""),
+        mixing_profile=mixing_profile,
+    )
+
+    d = analysis.to_dict()
+    with open(analysis_cache, "w") as f:
+        json.dump(d, f, indent=2)
+
+    return analysis
+
+
+def _dict_to_analysis(d: dict) -> TrackAnalysis:
+    d["key"] = KeyInfo(**d["key"])
+    d["bar_grid"] = BarGrid(**d["bar_grid"])
+    d["stems"] = StemPaths(**d["stems"])
+    sections = []
+    for s in d["sections"]:
+        stems_d = s["stems"]
+        for stem_name in stems_d:
+            stems_d[stem_name] = StemPresence(**stems_d[stem_name])
+        s["stems"] = SectionStems(**stems_d)
+        sections.append(Section(**s))
+    d["sections"] = sections
+    d["cue_points"] = [CuePoint(**c) for c in d["cue_points"]]
+    # migrate renamed field from old cache files
+    if "loudness_lufs" in d:
+        d["loudness_dbfs"] = d.pop("loudness_lufs")
+
+    # Optional MixingProfile — absent in old caches
+    profile_data = d.pop("mixing_profile", None)
+    if profile_data:
+        from schema import LoopCandidate, MixingProfile, TransitionWindow
+        d["mixing_profile"] = MixingProfile(
+            vocal_bars=profile_data.get("vocal_bars", []),
+            loop_candidates=[
+                LoopCandidate(**lc) for lc in profile_data.get("loop_candidates", [])
+            ],
+            transition_windows=[
+                TransitionWindow(**tw) for tw in profile_data.get("transition_windows", [])
+            ],
+            intro_type=profile_data.get("intro_type", "silent"),
+            outro_type=profile_data.get("outro_type", "fade-silence"),
+            dj_notes=profile_data.get("dj_notes", ""),
+        )
+
+    return TrackAnalysis(**d)
+
+
+def analyze_tracks(audio_paths: list[str], no_stems: bool = False) -> list[TrackAnalysis]:
+    return [analyze_track(p, f"T{i+1}", no_stems=no_stems) for i, p in enumerate(audio_paths)]
+
+
+def analyze_transition_zone(
+    audio_path: str,
+    bpm: float,
+    first_downbeat_s: float,
+    start_bar: int,
+    n_bars: int = 48,
+) -> list[dict]:
+    """
+    Fast per-bar deep analysis of a transition window (entry or exit zone).
+
+    Returns a list of dicts, one per bar:
+      {"bar": 80, "drums": 0.82, "harmonic": 0.71,
+       "brightness": 0.65, "onsets": 4, "rms": 0.75}
+
+    "drums" and "harmonic" are normalised 0–1 RMS values from:
+      - Demucs cached stems (drums.wav / bass+other.wav) if available
+      - HPSS percussive/harmonic decomposition otherwise
+
+    "brightness" is normalised spectral centroid (0=dark, 1=bright).
+    "onsets" is onset count per bar (0–4 scale, proxy for beat density).
+    """
+    audio_path = str(Path(audio_path).resolve())
+    secs_per_bar = 4 * 60.0 / bpm
+
+    zone_start_s = first_downbeat_s + start_bar * secs_per_bar
+    zone_dur_s   = n_bars * secs_per_bar
+
+    # Load only the zone slice to keep this fast
+    y_full, sr = librosa.load(
+        audio_path, sr=ANALYSIS_SR, mono=True,
+        offset=max(0.0, zone_start_s),
+        duration=zone_dur_s,
+    )
+    if len(y_full) == 0:
+        return []
+
+    actual_bars = min(n_bars, max(1, int(len(y_full) / (secs_per_bar * sr))))
+
+    # ── Source: real Demucs stems (if cached) or HPSS fallback ───────────────
+    cache_dir = CACHE_DIR / file_hash(audio_path)
+    drums_stem_path = cache_dir / "stems" / "drums.wav"
+    bass_stem_path  = cache_dir / "stems" / "bass.wav"
+    other_stem_path = cache_dir / "stems" / "other.wav"
+    has_stems = drums_stem_path.exists() and bass_stem_path.exists()
+
+    # ── Vocal stem (optional — added alongside drums/harmonic) ───────────────
+    vocals_stem_path = cache_dir / "stems" / "vocals.wav"
+    has_vocals = vocals_stem_path.exists()
+    vocals_y: Optional[np.ndarray] = None
+    if has_vocals:
+        vocals_y, _ = librosa.load(
+            str(vocals_stem_path), sr=ANALYSIS_SR, mono=True,
+            offset=max(0.0, zone_start_s), duration=zone_dur_s,
+        )
+
+    if has_stems:
+        drums_y, _ = librosa.load(
+            str(drums_stem_path), sr=ANALYSIS_SR, mono=True,
+            offset=max(0.0, zone_start_s), duration=zone_dur_s,
+        )
+        # harmonic = bass + other (everything non-percussive)
+        bass_y, _ = librosa.load(
+            str(bass_stem_path), sr=ANALYSIS_SR, mono=True,
+            offset=max(0.0, zone_start_s), duration=zone_dur_s,
+        )
+        harm_len = min(len(y_full), len(bass_y))
+        if other_stem_path.exists():
+            other_y, _ = librosa.load(
+                str(other_stem_path), sr=ANALYSIS_SR, mono=True,
+                offset=max(0.0, zone_start_s), duration=zone_dur_s,
+            )
+            harm_len = min(harm_len, len(other_y))
+            harmonic_y = bass_y[:harm_len] + other_y[:harm_len]
+        else:
+            harmonic_y = bass_y[:harm_len]
+        drums_y = drums_y[:harm_len]
+        y_full  = y_full[:harm_len]
+        if vocals_y is not None and len(vocals_y) > len(y_full):
+            vocals_y = vocals_y[:len(y_full)]
+    else:
+        # HPSS: fast enough on a 48-bar slice (~0.5s at 22 kHz)
+        harmonic_y, drums_y = librosa.effects.hpss(y_full, margin=3.0)
+
+    voc_peak = float(np.sqrt(np.mean(vocals_y ** 2))) + 1e-9 if vocals_y is not None else 1.0
+
+    # Normalise against the zone peak so values are relative (0–1)
+    mix_peak  = float(np.sqrt(np.mean(y_full  ** 2))) + 1e-9
+    drum_peak = float(np.sqrt(np.mean(drums_y ** 2))) + 1e-9
+    harm_peak = float(np.sqrt(np.mean(harmonic_y ** 2))) + 1e-9
+    zone_peak = max(mix_peak, 1e-6)
+
+    # Pre-compute onset envelope over the whole zone for peak-picking
+    hop = 256
+    onset_env = librosa.onset.onset_strength(y=y_full, sr=sr, hop_length=hop)
+    frames_per_bar = max(1, int(secs_per_bar * sr / hop))
+
+    results: list[dict] = []
+    for i in range(actual_bars):
+        bar_abs = start_bar + i
+        s = int(i * secs_per_bar * sr)
+        e = int((i + 1) * secs_per_bar * sr)
+
+        mix_slice  = y_full[s:e]
+        drum_slice = drums_y[s:e]
+        harm_slice = harmonic_y[s:e]
+
+        if len(mix_slice) == 0:
+            break
+
+        # RMS — normalised to zone peak so they're comparable across bars
+        mix_rms  = float(np.sqrt(np.mean(mix_slice  ** 2))) / zone_peak
+        drum_rms = float(np.sqrt(np.mean(drum_slice ** 2))) / zone_peak
+        harm_rms = float(np.sqrt(np.mean(harm_slice ** 2))) / zone_peak
+
+        # Spectral centroid → brightness (500 Hz = dark, 8000 Hz = bright)
+        sc = librosa.feature.spectral_centroid(y=mix_slice, sr=sr, hop_length=hop)
+        sc_mean = float(np.mean(sc))
+        brightness = min(1.0, max(0.0, (sc_mean - 500.0) / 7500.0))
+
+        # Onset count in this bar (0–4 scale)
+        of_s = i * frames_per_bar
+        of_e = (i + 1) * frames_per_bar
+        bar_onset = onset_env[of_s:of_e] if of_e <= len(onset_env) else onset_env[of_s:]
+        if len(bar_onset) > 0:
+            threshold = float(np.mean(onset_env)) * 0.8
+            onsets = int(np.sum(bar_onset > threshold))
+            onsets = min(4, onsets)
+        else:
+            onsets = 0
+
+        # Vocal RMS — normalised to vocal zone peak
+        if vocals_y is not None and s < len(vocals_y):
+            voc_slice = vocals_y[s:e]
+            voc_rms = float(np.sqrt(np.mean(voc_slice ** 2))) / voc_peak if len(voc_slice) > 0 else 0.0
+        else:
+            voc_rms = 0.0
+
+        tags = _assign_tags(
+            drums=round(min(1.0, drum_rms * 1.5), 2),
+            harmonic=round(min(1.0, harm_rms * 1.5), 2),
+            vocals=round(min(1.0, voc_rms), 2),
+        )
+
+        results.append({
+            "bar":        bar_abs,
+            "drums":      round(min(1.0, drum_rms * 1.5), 2),  # slight boost for legibility
+            "harmonic":   round(min(1.0, harm_rms * 1.5), 2),
+            "brightness": round(brightness, 2),
+            "onsets":     onsets,
+            "rms":        round(min(1.0, mix_rms), 2),
+            "vocals":     round(min(1.0, voc_rms), 2),
+            "tags":       tags,
+        })
+
+    return results

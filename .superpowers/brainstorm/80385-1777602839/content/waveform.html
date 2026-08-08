@@ -1,0 +1,316 @@
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap');
+
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Geist', system-ui, sans-serif; }
+
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+
+  .wf-card {
+    border: 2px solid #2a2a2a;
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color .15s, box-shadow .15s;
+    background: #0e0e0e;
+  }
+  .wf-card:hover { border-color: #444; }
+  .wf-card.selected { border-color: #ff5f00; box-shadow: 0 0 0 1px #ff5f00; }
+
+  .wf-label {
+    font-size: 10px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase;
+    padding: 8px 14px; border-bottom: 1px solid #1c1c1c; color: #555;
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: 'Geist Mono', monospace;
+  }
+  .wf-card.selected .wf-label { color: #ff5f00; }
+  .wf-tag { font-size: 9px; padding: 2px 6px; border-radius: 3px; background: #1a1a1a; color: #444; }
+
+  .wf-preview {
+    padding: 20px 16px 16px;
+    background: #080808;
+    position: relative;
+  }
+
+  /* --- Option A: Mirror Waveform --- */
+  .wave-mirror {
+    display: flex; gap: 2px; align-items: center;
+    height: 60px; padding: 0 4px;
+  }
+  .wm-bar {
+    flex: 1; display: flex; flex-direction: column; align-items: center;
+    gap: 2px; justify-content: center;
+  }
+  .wm-top, .wm-bot { border-radius: 1px; min-height: 1px; }
+
+  /* --- Option B: Filled Gradient --- */
+  .wave-gradient {
+    position: relative; height: 60px;
+  }
+  .wave-gradient canvas { width: 100%; height: 100%; }
+
+  /* --- Option C: Dot Matrix --- */
+  .wave-dots {
+    display: flex; gap: 3px; align-items: flex-end;
+    height: 60px; padding: 0 4px;
+  }
+  .wd-col { display: flex; flex-direction: column-reverse; gap: 2px; }
+  .wd-dot { width: 4px; height: 4px; border-radius: 50%; }
+
+  /* --- Option D: Dual-deck overlay --- */
+  .wave-overlay { position: relative; height: 60px; }
+
+  .wf-meta {
+    padding: 8px 14px; border-top: 1px solid #161616;
+    font-size: 11px; color: #555; display: flex; justify-content: space-between;
+    font-family: 'Geist', system-ui, sans-serif;
+  }
+  .wf-meta span { color: #888; }
+
+  .wf-desc { padding: 10px 14px 14px; border-top: 1px solid #161616; }
+  .wf-desc h3 { font-size: 12px; font-weight: 600; color: #ddd; margin-bottom: 4px; }
+  .wf-desc p  { font-size: 11px; color: #555; line-height: 1.55; }
+</style>
+
+<h2>Waveform Display</h2>
+<p class="subtitle">How to render the energy_curve string — each option uses identical data</p>
+
+<div class="compare">
+
+  <!-- A: Mirror (symmetric, Serato-style) -->
+  <div class="wf-card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="wf-label">A — Mirror <span class="wf-tag">Serato-style</span></div>
+    <div class="wf-preview">
+      <div class="wave-mirror" id="wm-a"></div>
+    </div>
+    <div class="wf-meta">Deck A &nbsp;<span>▶ bar 24 / 128</span></div>
+    <div class="wf-desc">
+      <h3>Symmetric bars above + below center</h3>
+      <p>Classic professional DJ waveform look. Feels technical, balanced. Playhead splits past (dimmed) from upcoming (bright).</p>
+    </div>
+  </div>
+
+  <!-- B: Filled gradient curve -->
+  <div class="wf-card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="wf-label">B — Gradient Fill <span class="wf-tag">Smooth / Modern</span></div>
+    <div class="wf-preview">
+      <canvas id="wm-b" height="60"></canvas>
+    </div>
+    <div class="wf-meta">Deck A &nbsp;<span>▶ bar 24 / 128</span></div>
+    <div class="wf-desc">
+      <h3>Smooth filled curve with gradient fade</h3>
+      <p>Less clinical, more musical. The energy shape reads as a landscape. Good for seeing build-ups and drops at a glance.</p>
+    </div>
+  </div>
+
+  <!-- C: Dot matrix -->
+  <div class="wf-card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="wf-label">C — Dot Matrix <span class="wf-tag">Minimal / Data-art</span></div>
+    <div class="wf-preview">
+      <div class="wave-dots" id="wm-c"></div>
+    </div>
+    <div class="wf-meta">Deck A &nbsp;<span>▶ bar 24 / 128</span></div>
+    <div class="wf-desc">
+      <h3>Grid of dots — height = energy level</h3>
+      <p>Looks like an LED matrix or oscilloscope. Each column is one bar, each dot represents an energy unit. Unique, hardware-inspired.</p>
+    </div>
+  </div>
+
+  <!-- D: A+B overlay (crossfade zone) -->
+  <div class="wf-card" data-choice="d" onclick="toggleSelect(this)">
+    <div class="wf-label">D — A+B Overlap <span class="wf-tag">Transition-first</span></div>
+    <div class="wf-preview">
+      <canvas id="wm-d" height="60"></canvas>
+    </div>
+    <div class="wf-meta">Deck A fading → Deck B incoming &nbsp;<span>transition zone</span></div>
+    <div class="wf-desc">
+      <h3>Both deck waveforms overlaid in one strip</h3>
+      <p>Shows the crossfade zone where A and B overlap. Orange = A fading out, Blue = B fading in. Makes the transition tangible.</p>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const curveA = "3456787654678987654345678765456876543";
+const curveB = "2345565432456765432234567654234567543";
+const BARS = 36;
+
+function sampleCurve(curve, n) {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const idx = Math.floor(i * curve.length / n);
+    out.push(parseInt(curve[idx] || '5') / 9);
+  }
+  return out;
+}
+
+const samplesA = sampleCurve(curveA, BARS);
+const samplesB = sampleCurve(curveB, BARS);
+const PLAYHEAD = 24;
+
+// ── A: Mirror bars ──────────────────────────────────────────────────────────
+(function() {
+  const el = document.getElementById('wm-a');
+  samplesA.forEach((v, i) => {
+    const past = i < PLAYHEAD;
+    const col = document.createElement('div');
+    col.className = 'wm-bar';
+    const h = Math.max(2, Math.round(v * 26));
+    const color = past ? 'rgba(255,95,0,0.25)' : '#ff5f00';
+    const top = document.createElement('div');
+    top.className = 'wm-top';
+    top.style.cssText = `width:100%;height:${h}px;background:${color};border-radius:1px 1px 0 0`;
+    const bot = document.createElement('div');
+    bot.className = 'wm-bot';
+    bot.style.cssText = `width:100%;height:${Math.round(h*0.6)}px;background:${past?'rgba(255,95,0,0.1)':'rgba(255,95,0,0.35)'};border-radius:0 0 1px 1px`;
+    col.appendChild(top);
+    col.appendChild(bot);
+    el.appendChild(col);
+  });
+  // Playhead line
+  const ph = document.createElement('div');
+  ph.style.cssText = `position:absolute;left:${(PLAYHEAD/BARS*100).toFixed(1)}%;top:10px;bottom:10px;width:2px;background:#fff;opacity:.4;border-radius:1px;pointer-events:none`;
+  el.parentElement.appendChild(ph);
+  el.parentElement.style.position = 'relative';
+})();
+
+// ── B: Gradient fill canvas ─────────────────────────────────────────────────
+(function() {
+  const canvas = document.getElementById('wm-b');
+  canvas.width = canvas.parentElement.offsetWidth || 360;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = 60;
+  const N = samplesA.length;
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Played portion — dimmed
+  ctx.beginPath();
+  ctx.moveTo(0, H);
+  for (let i = 0; i <= PLAYHEAD; i++) {
+    const x = (i / N) * W;
+    const y = H - samplesA[i] * (H - 8) - 4;
+    i === 0 ? ctx.lineTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.lineTo((PLAYHEAD / N) * W, H);
+  ctx.closePath();
+  const gPlayed = ctx.createLinearGradient(0, 0, 0, H);
+  gPlayed.addColorStop(0, 'rgba(255,95,0,0.2)');
+  gPlayed.addColorStop(1, 'rgba(255,95,0,0.03)');
+  ctx.fillStyle = gPlayed;
+  ctx.fill();
+
+  // Upcoming — bright
+  ctx.beginPath();
+  ctx.moveTo((PLAYHEAD / N) * W, H);
+  for (let i = PLAYHEAD; i < N; i++) {
+    const x = (i / N) * W;
+    const y = H - samplesA[i] * (H - 8) - 4;
+    ctx.lineTo(x, y);
+  }
+  ctx.lineTo(W, H);
+  ctx.closePath();
+  const gFuture = ctx.createLinearGradient(0, 0, 0, H);
+  gFuture.addColorStop(0, 'rgba(255,95,0,0.85)');
+  gFuture.addColorStop(1, 'rgba(255,95,0,0.08)');
+  ctx.fillStyle = gFuture;
+  ctx.fill();
+
+  // Outline
+  ctx.beginPath();
+  for (let i = 0; i < N; i++) {
+    const x = (i / N) * W;
+    const y = H - samplesA[i] * (H - 8) - 4;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = 'rgba(255,95,0,0.6)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Playhead
+  const phx = (PLAYHEAD / N) * W;
+  ctx.beginPath(); ctx.moveTo(phx, 4); ctx.lineTo(phx, H - 4);
+  ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 2; ctx.stroke();
+})();
+
+// ── C: Dot matrix ───────────────────────────────────────────────────────────
+(function() {
+  const el = document.getElementById('wm-c');
+  const ROWS = 7;
+  samplesA.forEach((v, i) => {
+    const past = i < PLAYHEAD;
+    const filled = Math.round(v * ROWS);
+    const col = document.createElement('div');
+    col.className = 'wd-col';
+    for (let r = 0; r < ROWS; r++) {
+      const dot = document.createElement('div');
+      dot.className = 'wd-dot';
+      if (r < filled) {
+        dot.style.background = past ? 'rgba(255,95,0,0.25)' : '#ff5f00';
+        if (!past && r === filled - 1) dot.style.boxShadow = '0 0 4px rgba(255,95,0,0.6)';
+      } else {
+        dot.style.background = '#1a1a1a';
+      }
+      col.appendChild(dot);
+    }
+    el.appendChild(col);
+  });
+})();
+
+// ── D: A+B overlay ──────────────────────────────────────────────────────────
+(function() {
+  const canvas = document.getElementById('wm-d');
+  canvas.width = canvas.parentElement.offsetWidth || 360;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = 60;
+  const N = samplesA.length;
+  const XSTART = Math.floor(N * 0.55); // where B starts
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Deck A - past (dimmed)
+  ctx.beginPath();
+  ctx.moveTo(0, H);
+  for (let i = 0; i < XSTART; i++) {
+    ctx.lineTo((i/N)*W, H - samplesA[i]*(H-8) - 4);
+  }
+  ctx.lineTo((XSTART/N)*W, H); ctx.closePath();
+  ctx.fillStyle = 'rgba(255,95,0,0.15)'; ctx.fill();
+
+  // Deck A - in transition zone (fading)
+  ctx.beginPath();
+  ctx.moveTo((XSTART/N)*W, H);
+  for (let i = XSTART; i < N; i++) {
+    const fade = 1 - (i - XSTART) / (N - XSTART);
+    ctx.lineTo((i/N)*W, H - samplesA[i]*(H-8) - 4);
+  }
+  ctx.lineTo(W, H); ctx.closePath();
+  const gA = ctx.createLinearGradient((XSTART/N)*W, 0, W, 0);
+  gA.addColorStop(0, 'rgba(255,95,0,0.6)');
+  gA.addColorStop(1, 'rgba(255,95,0,0.05)');
+  ctx.fillStyle = gA; ctx.fill();
+
+  // Deck B - building in (from right)
+  ctx.beginPath();
+  ctx.moveTo((XSTART/N)*W, H);
+  for (let i = XSTART; i < N; i++) {
+    ctx.lineTo((i/N)*W, H - samplesB[i-XSTART < samplesB.length ? i-XSTART : samplesB.length-1]*(H-8) - 4);
+  }
+  ctx.lineTo(W, H); ctx.closePath();
+  const gB = ctx.createLinearGradient((XSTART/N)*W, 0, W, 0);
+  gB.addColorStop(0, 'rgba(0,180,255,0.05)');
+  gB.addColorStop(1, 'rgba(0,180,255,0.55)');
+  ctx.fillStyle = gB; ctx.fill();
+
+  // Transition zone marker
+  const tx = (XSTART/N)*W;
+  ctx.setLineDash([3,3]);
+  ctx.beginPath(); ctx.moveTo(tx, 0); ctx.lineTo(tx, H);
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1; ctx.stroke();
+  ctx.setLineDash([]);
+})();
+</script>
+
+<p style="margin-top:16px;font-size:11px;color:#555;text-align:center">
+  All four options use the same energy_curve data from the track analysis
+</p>
