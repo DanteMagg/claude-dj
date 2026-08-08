@@ -79,6 +79,11 @@ class DjSessionState:
     deck_b: Optional[DjDeckB] = None
     track_counter: int = 0
     current_start_bar: int = 0
+    # Bar in the CURRENT track's own timeline that plays at current_start_bar. Nonzero
+    # whenever the deck was mixed in part-way through (the play action's from_bar), which
+    # is every track after the first. Track-local bar B sits at global
+    # B + (current_start_bar - current_from_bar).
+    current_from_bar: int = 0
     ref_bpm: Optional[float] = None
     error: Optional[str] = None
     transition_log: list = field(default_factory=list)  # list[TransitionLogEntry]
